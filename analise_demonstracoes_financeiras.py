@@ -246,24 +246,41 @@ def _num_br(valor: float, casas: int = 2) -> str:
     texto = f"{valor:,.{casas}f}"
     return texto.replace(",", "X").replace(".", ",").replace("X", ".")
 
+def formatar_monetario_mil(v: float) -> str:
+    valor_mil = _num_br(v, 0)
+
+    if abs(v) >= 1_000_000:
+        return f"R$ {valor_mil} mil (R$ {_num_br(v / 1_000_000, 2)} bi)"
+
+    if abs(v) >= 1_000:
+        return f"R$ {valor_mil} mil (R$ {_num_br(v / 1_000, 2)} mi)"
+
+    return f"R$ {valor_mil} mil"
 
 def formatar_valor(ind: Indicador) -> str:
     """Formata o valor de acordo com a unidade; 'n/d' quando não calculável."""
+
     if not _valido(ind.valor):
         return "n/d"
-    v = ind.valor  # type: ignore[assignment]
+
+    v = ind.valor
+
     if ind.unidade == "%":
         return f"{_num_br(v * 100)}%"
+
     if ind.unidade == "x":
         return f"{_num_br(v)}x"
+
     if ind.unidade == "dias":
         return f"{_num_br(v, 1)} dias"
+
     if ind.unidade == "R$ mil":
-        return f"R$ {_num_br(v, 0)} mil"
+        return formatar_monetario_mil(v)
+
     if ind.unidade == "R$/ação":
         return f"R$ {_num_br(v)}"
-    return _num_br(v)
 
+    return _num_br(v)
 
 # ----------------------------------------------------------------------------
 # Analisador: um método por módulo
