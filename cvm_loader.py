@@ -29,6 +29,7 @@ Convenções:
   - Usa o ÚLTIMO exercício do arquivo e a VERSÃO mais recente de cada demonstração (reapresentações).
   - Despesas/custos da DRE vêm negativos na CVM e são convertidos para valores positivos.
   - O número de ações vem da DFP (composição do capital: ações integralizadas menos as em tesouraria).
+    A CVM informa essa quantidade em MILHARES de ações; internamente convertemos para unidades.
   - O preço da ação NÃO consta da DFP: deve ser informado pelo usuário (opcional).
 """
 
@@ -60,6 +61,9 @@ from analise_demonstracoes_financeiras import (
 # Endereço oficial dos arquivos anuais (DFP) no Portal de Dados Abertos da CVM
 URL_DFP = "https://dados.cvm.gov.br/dados/CIA_ABERTA/DOC/DFP/DADOS/dfp_cia_aberta_{ano}.zip"
 PASTA_CACHE_PADRAO = Path("cache_cvm")
+
+# A composição do capital da CVM traz a quantidade de ações em milhares (1 unidade no arquivo = 1.000 ações)
+ACOES_CVM_ESCALA = 1000.0
 
 # Função de progresso: recebe (bytes_baixados, total_de_bytes_ou_None)
 Progresso = Callable[[int, Optional[int]], None]
@@ -386,6 +390,12 @@ def carregar_dados(
         preco_acao=preco_acao,
         numero_acoes=(numero_acoes / 1000.0) if numero_acoes else None,  # o script de análise usa milhares
     )
+    if numero_acoes and balanco.patrimonio_liquido:
+        # R$ mil / (ações em milhares) = R$ por ação. Valores absurdos indicam erro de unidade.
+        vpa = balanco.patrimonio_liquido / (numero_acoes / 1000.0)
+        if not 0.05 <= abs(vpa) <= 20000:
+            avisos.append(f"Valor patrimonial por ação de R$ {vpa:.4g} parece fora do usual: confira a unidade "
+                          "do número de ações (a CVM informa em milhares).")
     if not numero_acoes:
         avisos.append("Número de ações não encontrado na CVM nem informado: LPA, VPA, P/L, Market-to-Book, "
                       "Valor de Mercado e EV aparecem como n/d.")
@@ -414,7 +424,11 @@ def _inteiro_br(valor: float) -> str:
 def _numero_acoes_cvm(zf: zipfile.ZipFile, cnpj: str) -> Optional[Tuple[float, float, float]]:
     """
     Lê a composição do capital (arquivo '..._composicao_capital_<ano>.csv' da DFP) e devolve
-    (ações em circulação, total integralizado, em tesouraria), em unidades. None se não houver.
+    (ações em circulação, total integralizado, em tesouraria), em UNIDADES. None se não houver.
+
+    Atenção à escala: no formulário da CVM a quantidade de ações é informada em MILHARES
+    (ex.: Vale = 4.539.007 no arquivo, ou seja, 4,539 bilhões de ações). Por isso o valor lido é
+    multiplicado por ACOES_CVM_ESCALA, deixando o resultado em unidades, como `carregar_dados` espera.
     """
     nome = next((n for n in zf.namelist() if "composicao_capital" in n.lower() and n.lower().endswith(".csv")), None)
     if not nome:
@@ -428,8 +442,8 @@ def _numero_acoes_cvm(zf: zipfile.ZipFile, cnpj: str) -> Optional[Tuple[float, f
     if melhor is None:
         return None
     try:
-        total = float(melhor.get("QT_ACAO_TOTAL_CAP_INTEGR") or 0)
-        tesouraria = float(melhor.get("QT_ACAO_TOTAL_TESOURO") or 0)
+        total = float(melhor.get("QT_ACAO_TOTAL_CAP_INTEGR") or 0) * ACOES_CVM_ESCALA
+        tesouraria = float(melhor.get("QT_ACAO_TOTAL_TESOURO") or 0) * ACOES_CVM_ESCALA
     except ValueError:
         return None
     circulacao = total - tesouraria
