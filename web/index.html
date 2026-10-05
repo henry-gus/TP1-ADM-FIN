@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Análise Financeira</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%231f4e8c'/%3E%3Cpath d='M8 23V15M14 23V9M20 23V13M26 23V6' stroke='white' stroke-width='3' stroke-linecap='round'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="estilo.css">
+</head>
+<body>
+  <header class="topo">
+    <div class="topo-conteudo">
+      <div>
+        <h1>Análise de Demonstrações Financeiras</h1>
+        <p class="sub">CAD 167 · Administração Financeira · UFMG</p>
+      </div>
+      <button id="btn-tema" class="btn-icone" type="button" title="Alternar tema" aria-label="Alternar tema"><svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor"/></svg></button>
+    </div>
+  </header>
+
+  <main class="layout">
+    <!-- ================= PAINEL DE ENTRADA ================= -->
+    <aside class="painel" aria-label="Fonte dos dados">
+      <nav class="abas" role="tablist">
+        <button role="tab" class="aba ativa" data-aba="cvm">Empresa CVM</button>
+        <button role="tab" class="aba" data-aba="arquivo">Arquivo JSON</button>
+        <button role="tab" class="aba" data-aba="manual">Manual</button>
+      </nav>
+
+      <!-- CVM -->
+      <section class="aba-conteudo" id="aba-cvm">
+        <div class="campo">
+          <label for="cvm-ano">Ano do exercício</label>
+          <input id="cvm-ano" type="number" min="2010" step="1">
+        </div>
+
+        <div id="cvm-base" class="caixa-status">
+          <p id="cvm-base-texto">Verificando base da CVM…</p>
+          <div id="cvm-progresso" class="progresso oculto"><div class="progresso-barra"></div></div>
+          <button id="btn-baixar" class="btn btn-secundario oculto" type="button">Baixar base da CVM</button>
+        </div>
+
+        <div id="cvm-busca-area" class="oculto">
+          <div class="campo">
+            <label for="cvm-busca">Empresa (nome ou CNPJ)</label>
+            <input id="cvm-busca" type="search" placeholder="ex.: weg, vale, magazine luiza" autocomplete="off">
+            <ul id="cvm-resultados" class="lista-empresas" role="listbox"></ul>
+          </div>
+          <div id="cvm-selecionada" class="empresa-selecionada oculto"></div>
+
+          <label class="opcao">
+            <input id="cvm-consolidado" type="checkbox" checked>
+            Usar demonstrações consolidadas
+          </label>
+
+          <fieldset class="grupo">
+            <legend>Dados de mercado <span class="opcional">(opcional)</span></legend>
+            <p class="dica">O preço da ação não consta nas demonstrações da CVM: informe-o para calcular P/L, Market-to-Book, Valor de Mercado e EV.</p>
+            <div class="campo">
+              <label for="cvm-preco">Preço da ação</label>
+              <div class="campo-moeda"><span aria-hidden="true">R$</span><input id="cvm-preco" inputmode="numeric" placeholder="0,00" autocomplete="off"></div>
+            </div>
+            <div class="campo">
+              <label for="cvm-acoes">Número de ações <span class="opcional">(padrão: dado da CVM)</span></label>
+              <input id="cvm-acoes" inputmode="numeric" placeholder="automático">
+            </div>
+          </fieldset>
+
+          <button id="btn-analisar-cvm" class="btn btn-primario" type="button" disabled>Analisar empresa</button>
+        </div>
+      </section>
+
+      <!-- ARQUIVO -->
+      <section class="aba-conteudo oculto" id="aba-arquivo">
+        <p class="dica">Envie um <code>dados_entrada.json</code> gerado pela aplicação (pasta <code>relatorios/&lt;empresa&gt;/</code>) ou um arquivo no mesmo formato.</p>
+        <label id="zona-arquivo" class="zona-arquivo" for="arquivo-json">
+          <input id="arquivo-json" type="file" accept=".json,application/json">
+          <strong>Escolha um arquivo</strong>
+          <span>ou arraste-o para cá</span>
+        </label>
+        <div class="separador"><span>ou</span></div>
+        <button id="btn-exemplo" class="btn btn-secundario" type="button">Usar dados fictícios de exemplo</button>
+      </section>
+
+      <!-- MANUAL -->
+      <section class="aba-conteudo oculto" id="aba-manual">
+        <p class="dica">Valores em <strong>R$ mil</strong>. Totais são opcionais: se vazios, são calculados a partir das contas. Aceita 120.000 ou 1.234,56.</p>
+        <form id="form-manual" novalidate></form>
+        <div class="acoes-form">
+          <button id="btn-analisar-manual" class="btn btn-primario" type="button">Calcular indicadores</button>
+          <button id="btn-limpar-manual" class="btn btn-fantasma" type="button">Limpar</button>
+        </div>
+      </section>
+
+      <div id="erro" class="alerta alerta-erro oculto" role="alert"></div>
+    </aside>
+
+    <!-- ================= RESULTADOS ================= -->
+    <section class="resultados" aria-live="polite">
+      <div id="vazio" class="vazio">
+        <div class="vazio-grafico" aria-hidden="true">
+          <span style="height:40%"></span><span style="height:65%"></span><span style="height:50%"></span><span style="height:85%"></span><span style="height:70%"></span>
+        </div>
+        <h2>Nenhuma análise ainda</h2>
+        <p>Escolha uma empresa listada na CVM, envie um arquivo de dados ou preencha os valores manualmente.</p>
+      </div>
+
+      <div id="carregando" class="vazio oculto">
+        <div class="spinner" aria-hidden="true"></div>
+        <p id="carregando-texto">Calculando…</p>
+      </div>
+
+      <div id="relatorio" class="oculto">
+        <div class="cabecalho-relatorio">
+          <div>
+            <h2 id="r-empresa"></h2>
+            <p id="r-periodo" class="periodo"></p>
+            <p id="r-fonte" class="fonte"></p>
+          </div>
+          <div class="acoes-relatorio">
+            <button id="btn-editar" class="btn btn-fantasma" type="button">Editar dados</button>
+            <div class="menu-download">
+              <button id="btn-download" class="btn btn-secundario" type="button" aria-haspopup="true">Baixar ▾</button>
+              <div id="menu-download" class="menu oculto">
+                <button data-download="html">Relatório (HTML)</button>
+                <button data-download="txt">Relatório (TXT)</button>
+                <button data-download="json">Indicadores (JSON)</button>
+                <button data-download="dados">Dados de entrada (JSON)</button>
+              </div>
+            </div>
+            <button id="btn-imprimir" class="btn btn-fantasma" type="button">Imprimir</button>
+          </div>
+        </div>
+
+        <div id="r-avisos"></div>
+
+        <div id="r-kpis" class="kpis"></div>
+
+        <div class="graficos">
+          <article class="cartao">
+            <h3>Decomposição DuPont</h3>
+            <div id="r-dupont" class="dupont"></div>
+          </article>
+          <article class="cartao">
+            <h3>Estrutura do Balanço <span class="unidade">R$ mil</span></h3>
+            <div id="r-balanco"></div>
+          </article>
+          <article class="cartao">
+            <h3>Fluxos de Caixa <span class="unidade">R$ mil</span></h3>
+            <div id="r-dfc"></div>
+          </article>
+          <article class="cartao">
+            <h3>Margens</h3>
+            <div id="r-margens"></div>
+          </article>
+        </div>
+
+        <div id="r-modulos" class="modulos"></div>
+        <p class="nota"><strong>n/d</strong> = não disponível: o indicador não pôde ser calculado porque falta um dado de entrada ou o denominador é zero. O motivo aparece abaixo de cada n/d. Indicadores de balanço usam saldos de fim de período.</p>
+      </div>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>

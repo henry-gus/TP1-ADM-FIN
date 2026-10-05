@@ -28,7 +28,8 @@ Convenções:
   - Valores convertidos automaticamente para R$ mil (a CVM informa a escala em ESCALA_MOEDA).
   - Usa o ÚLTIMO exercício do arquivo e a VERSÃO mais recente de cada demonstração (reapresentações).
   - Despesas/custos da DRE vêm negativos na CVM e são convertidos para valores positivos.
-  - Número de ações e preço NÃO constam da DFP: devem ser informados pelo usuário (opcionais).
+  - O número de ações vem da DFP (composição do capital: ações integralizadas menos as em tesouraria).
+  - O preço da ação NÃO consta da DFP: deve ser informado pelo usuário (opcional).
 """
 
 from __future__ import annotations
@@ -344,7 +345,7 @@ def carregar_dados(
         ano           - ano do exercício (ex.: 2025).
         consolidado   - True = demonstrações consolidadas; False = individuais.
         preco_acao    - preço da ação em R$ (opcional; necessário para P/L, Market-to-Book e EV).
-        numero_acoes  - número TOTAL de ações, em unidades (opcional). Convertido para milhares.
+        numero_acoes  - número de ações, em unidades (opcional; se omitido, usa o da CVM). Convertido para milhares.
         caminho_zip   - usar um .zip já baixado em vez de baixar da CVM.
     """
     caminho = Path(caminho_zip) if caminho_zip else obter_zip_dfp(ano, pasta_cache, progresso=progresso)
@@ -369,6 +370,7 @@ def carregar_dados(
             dfc, _ = _ler_contas_escopo(zf, "dfc_mi", escopo, empresa.cnpj)
             if not dfc:  # algumas empresas usam o método direto (sem linhas de depreciação)
                 dfc, _ = _ler_contas_escopo(zf, "dfc_md", escopo, empresa.cnpj)
+            acoes_cvm = _numero_acoes_cvm(zf, empresa.cnpj) if not numero_acoes else None
     except zipfile.BadZipFile as erro:
         raise ErroCVM(f"O arquivo {caminho} está corrompido. Apague-o e baixe novamente.") from erro
 
@@ -376,12 +378,20 @@ def carregar_dados(
     balanco, dre_obj, dfc_obj = _montar_demonstracoes(bpa, bpp, dre, dfc, avisos)
     _verificar_qualidade(todas, bpa, bpp, avisos)
 
+    if not numero_acoes and acoes_cvm:
+        numero_acoes, total, tesouraria = acoes_cvm
+        avisos.append(f"Número de ações obtido da CVM: {_inteiro_br(numero_acoes)} em circulação "
+                      f"({_inteiro_br(total)} integralizadas - {_inteiro_br(tesouraria)} em tesouraria).")
     mercado = DadosMercado(
         preco_acao=preco_acao,
         numero_acoes=(numero_acoes / 1000.0) if numero_acoes else None,  # o script de análise usa milhares
     )
-    if preco_acao is None or not numero_acoes:
-        avisos.append("Preço e/ou número de ações não informados: LPA, VPA, P/L, Market-to-Book e EV aparecem como n/d.")
+    if not numero_acoes:
+        avisos.append("Número de ações não encontrado na CVM nem informado: LPA, VPA, P/L, Market-to-Book, "
+                      "Valor de Mercado e EV aparecem como n/d.")
+    elif preco_acao is None:
+        avisos.append("Preço da ação não informado (a CVM não o divulga): P/L, Market-to-Book, Valor de Mercado "
+                      "e EV aparecem como n/d. Informe o preço para calculá-los.")
 
     periodo = f"Exercício encerrado em {_formatar_data(data_ref)}" if data_ref else f"Exercício de {ano}"
     dados = DadosFinanceiros(empresa=empresa.nome, periodo=periodo, balanco=balanco, dre=dre_obj,
@@ -395,6 +405,35 @@ def _ler_contas_escopo(zf: zipfile.ZipFile, demonstracao: str, escopo: str,
     """Localiza o CSV da demonstração/escopo no zip e extrai as contas da empresa."""
     arquivo = _achar_arquivo(zf, demonstracao, escopo)
     return _ler_contas(zf, arquivo, cnpj) if arquivo else ({}, "")
+
+
+def _inteiro_br(valor: float) -> str:
+    return f"{valor:,.0f}".replace(",", ".")
+
+
+def _numero_acoes_cvm(zf: zipfile.ZipFile, cnpj: str) -> Optional[Tuple[float, float, float]]:
+    """
+    Lê a composição do capital (arquivo '..._composicao_capital_<ano>.csv' da DFP) e devolve
+    (ações em circulação, total integralizado, em tesouraria), em unidades. None se não houver.
+    """
+    nome = next((n for n in zf.namelist() if "composicao_capital" in n.lower() and n.lower().endswith(".csv")), None)
+    if not nome:
+        return None
+    melhor: Optional[Dict[str, str]] = None
+    for linha in _linhas_csv(zf, nome):
+        if (linha.get("CNPJ_CIA") or "").strip() != cnpj:
+            continue
+        if melhor is None or int(linha.get("VERSAO") or 0) > int(melhor.get("VERSAO") or 0):
+            melhor = linha
+    if melhor is None:
+        return None
+    try:
+        total = float(melhor.get("QT_ACAO_TOTAL_CAP_INTEGR") or 0)
+        tesouraria = float(melhor.get("QT_ACAO_TOTAL_TESOURO") or 0)
+    except ValueError:
+        return None
+    circulacao = total - tesouraria
+    return (circulacao, total, tesouraria) if circulacao > 0 else None
 
 
 def _formatar_data(data_iso: str) -> str:
@@ -467,6 +506,9 @@ def _montar_demonstracoes(bpa, bpp, dre, dfc, avisos: List[str]) -> Tuple[Balanc
     for nome, valor in obrigatorias.items():
         if valor is None:
             avisos.append(f"Conta não encontrada: {nome}. Indicadores que dependem dela aparecem como n/d.")
+    if dre_obj.vendas == 0:
+        avisos.append("Receita líquida igual a zero (comum em holdings/controladoras nas demonstrações individuais): "
+                      "margens e prazo de recebimento aparecem como n/d. Prefira as consolidadas.")
     return balanco, dre_obj, dfc_obj
 
 
@@ -512,7 +554,7 @@ def _main() -> None:
     parser.add_argument("--individual", action="store_true", help="usa demonstrações individuais")
     parser.add_argument("--zip", help="usa um .zip da DFP já baixado")
     parser.add_argument("--preco", help="preço da ação em R$")
-    parser.add_argument("--acoes", help="número total de ações")
+    parser.add_argument("--acoes", help="número de ações (padrão: o informado à CVM)")
     parser.add_argument("--saida", default="dados.json")
     args = parser.parse_args()
     try:

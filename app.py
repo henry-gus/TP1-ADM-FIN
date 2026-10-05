@@ -13,6 +13,9 @@ Arquitetura em 3 camadas (cada uma em um arquivo):
 COMO USAR (o mais simples): execute e siga o menu
     python app.py
 
+Interface web (navegador):
+    python servidor_web.py
+
 Atalhos sem menu:
     python app.py --exemplo                              # dados fictícios (roda sem internet)
     python app.py --empresa "weg" --ano 2025             # dados reais da CVM
@@ -265,10 +268,10 @@ def _fluxo_cvm_interativo(pasta: str) -> None:
             break
         print(f"\nEmpresa selecionada: {empresa.nome}")
         consolidado = _perguntar("Usar demonstrações consolidadas? (s/n)", "s").lower().startswith("s")
-        print("\nPreço e número de ações não vêm da CVM. Informe-os para calcular P/L, Market-to-Book e EV,")
-        print("ou pule para analisar apenas os demais indicadores.")
+        print("\nO número de ações vem da CVM, mas o preço da ação não. Informe o preço para calcular")
+        print("P/L, Market-to-Book, Valor de Mercado e EV, ou pule para analisar os demais indicadores.")
         preco = _perguntar_numero("Preço da ação em R$ (ex.: 45,30)")
-        acoes = _perguntar_numero("Número total de ações (ex.: 4.197.317.998)") if preco is not None else None
+        acoes = _perguntar_numero("Número de ações, para substituir o da CVM (ex.: 4.197.317.998)") if preco is not None else None
         resultado = analisar_cvm(empresa, ano, consolidado, preco, acoes, caminho_zip=caminho)
         _mostrar_resultado(resultado, salvar=True, pasta=pasta)
     except cvm.ErroCVM as erro:
@@ -324,7 +327,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     parser.add_argument("--ano", type=int, help="ano do exercício (padrão: ano anterior)")
     parser.add_argument("--individual", action="store_true", help="usa demonstrações individuais em vez de consolidadas")
     parser.add_argument("--preco", help="preço da ação em R$ (ex.: 45,30)")
-    parser.add_argument("--acoes", help="número total de ações (ex.: 4.197.317.998)")
+    parser.add_argument("--acoes", help="número de ações (padrão: o informado à CVM; ex.: 4.197.317.998)")
     parser.add_argument("--zip", metavar="ARQUIVO", help="usa um .zip da DFP já baixado (modo offline)")
     parser.add_argument("--pasta-saida", default=PASTA_RELATORIOS_PADRAO, help="pasta dos relatórios")
     parser.add_argument("--nao-salvar", action="store_true", help="apenas imprime, sem gerar arquivos")
