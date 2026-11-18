@@ -1,6 +1,6 @@
 # Aplicação de Análise de Demonstrações Financeiras
 
-**CAD 167 – Administração Financeira · Trabalho 1**
+**CAD 167 – Administração Financeira · Trabalho 2**
 Universidade Federal de Minas Gerais · Faculdade de Ciências Econômicas · Departamento de Ciências Administrativas (CAD)
 Curso de Sistemas de Informação · 2º semestre de 2026 · Professor: Bruno Pérez Ferreira
 
@@ -333,7 +333,7 @@ ai.tir([-1000, 500, 400, 300, 100])          # (0.1449..., None)
 
 ## 11. Atendimento aos critérios de avaliação
 
-Conforme o enunciado do Trabalho 1:
+Conforme o enunciado do Trabalho 2:
 
 | Critério | Onde está atendido |
 |---|---|
