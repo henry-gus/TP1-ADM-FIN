@@ -8,7 +8,7 @@ Professor: Bruno Pérez Ferreira
 
 # APLICAÇÃO DE ANÁLISE DE DEMONSTRAÇÕES FINANCEIRAS
 
-**Trabalho 1**
+**Trabalho 2**
 
 **Autores:** Henrique Gustavo Ferreira Silva e Guilherme Novais de Souza
 
@@ -61,7 +61,7 @@ Como transformar os conceitos de análise de demonstrações financeiras vistos 
 
 ### 1.4 Justificativa
 
-O enunciado do Trabalho 1 solicita uma aplicação que constitua um exemplo prático de um dos temas da primeira metade do curso (análise de demonstrações financeiras, valor do dinheiro no tempo, ou risco e retorno) e que contemple a execução, a captura de dados, a descrição nos comentários do código e a geração de relatórios. O tema escolhido foi a análise de demonstrações financeiras, por permitir o uso de dados públicos reais e por reunir conceitos centrais da disciplina. A aplicação foi depois estendida para cobrir por completo o tema de **estrutura de capital** e para tocar o tema de **gestão de investimentos**, por meio do orçamento de capital; o tema de operações financeiras não faz parte do escopo.
+O enunciado do Trabalho 2 solicita uma aplicação que constitua um exemplo prático de um dos temas da primeira metade do curso (análise de demonstrações financeiras, valor do dinheiro no tempo, ou risco e retorno) e que contemple a execução, a captura de dados, a descrição nos comentários do código e a geração de relatórios. O tema escolhido foi a análise de demonstrações financeiras, por permitir o uso de dados públicos reais e por reunir conceitos centrais da disciplina. A aplicação foi depois estendida para cobrir por completo o tema de **estrutura de capital** e para tocar o tema de **gestão de investimentos**, por meio do orçamento de capital; o tema de operações financeiras não faz parte do escopo.
 
 ## 2. Fundamentação teórica
 
