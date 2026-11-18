@@ -12,6 +12,9 @@ Recebe Balanço Patrimonial, DRE, DFC e dados de mercado e calcula, por módulo:
   4. Estrutura de Capital e Alavancagem
   5. Múltiplos e Avaliação de Mercado
   (+ resumo dos Fluxos de Caixa, como informação complementar)
+O custo de capital (WACC), os graus de alavancagem, a análise EBIT-LPA e a estrutura ótima ficam em
+estrutura_capital.py; a avaliação de projetos, em avaliacao_investimentos.py. Este arquivo guarda as
+estruturas de dados usadas por todos (inclusive o exercício anterior e os parâmetros de mercado).
 
 Captura de dados (três formas):
   - dicionário Python (DADOS_EXEMPLO, usado por padrão);
@@ -144,6 +147,7 @@ class DRE:
     despesas_financeiras: Optional[float] = None
     imposto_renda: Optional[float] = None
     lucro_liquido: Optional[float] = None                # opcional (senão, derivado)
+    lucro_antes_impostos: Optional[float] = None         # LAIR (opcional; conta 3.07 na CVM)
 
     @property
     def lucro_bruto_calc(self) -> Optional[float]:
@@ -166,6 +170,15 @@ class DRE:
             return None
         return lair - (self.imposto_renda if _valido(self.imposto_renda) else 0.0)
 
+    @property
+    def lair_calc(self) -> Optional[float]:
+        """Lucro antes dos impostos: informado, ou Lucro Líquido + IR, ou EBIT - Despesas Financeiras."""
+        if _valido(self.lucro_antes_impostos):
+            return self.lucro_antes_impostos
+        if _valido(self.lucro_liquido_calc) and _valido(self.imposto_renda):
+            return self.lucro_liquido_calc + self.imposto_renda
+        return subtrair(self.ebit_calc, self.despesas_financeiras)
+
 
 @dataclass
 class DFC:
@@ -181,9 +194,30 @@ class DFC:
 
 @dataclass
 class DadosMercado:
-    """Dados de mercado necessários aos múltiplos."""
+    """Dados de mercado: múltiplos e parâmetros do custo de capital (taxas em fração: 0,11 = 11%)."""
     preco_acao: Optional[float] = None                   # R$ por ação
     numero_acoes: Optional[float] = None                 # em milhares de ações
+    taxa_livre_risco: Optional[float] = None             # Rf; valor > 1 é interpretado como % (com aviso)
+    beta: Optional[float] = None                         # beta alavancado; beta <= 0 gera aviso, mas é aceito
+    premio_risco_mercado: Optional[float] = None         # prêmio de mercado; valor > 1 é interpretado como %
+    custo_divida: Optional[float] = None                 # Kd informado; substitui o Kd contábil no WACC
+
+
+@dataclass
+class ExercicioAnterior:
+    """Contas do exercício anterior (comparativo), usadas na dívida média e nos graus de alavancagem."""
+    vendas: Optional[float] = None
+    ebit: Optional[float] = None
+    lucro_liquido: Optional[float] = None
+    emprestimos_cp: Optional[float] = None
+    emprestimos_lp: Optional[float] = None
+    caixa: Optional[float] = None
+    patrimonio_liquido: Optional[float] = None
+
+    @property
+    def divida_total(self) -> Optional[float]:
+        """Dívida total = empréstimos/financiamentos de curto + longo prazo."""
+        return somar(self.emprestimos_cp, self.emprestimos_lp)
 
 
 def _construir(classe, dados: Optional[Dict[str, Any]]):
@@ -202,10 +236,13 @@ class DadosFinanceiros:
     dre: DRE
     dfc: DFC
     mercado: DadosMercado
+    exercicio_anterior: Optional[ExercicioAnterior] = None
 
     @classmethod
     def from_dict(cls, d: Dict[str, Any]) -> "DadosFinanceiros":
-        """Formato: {"empresa", "periodo", "balanco": {...}, "dre": {...}, "dfc": {...}, "mercado": {...}}"""
+        """Formato: {"empresa", "periodo", "balanco": {...}, "dre": {...}, "dfc": {...}, "mercado": {...},
+        "exercicio_anterior": {...} (opcional)}"""
+        anterior = d.get("exercicio_anterior")
         return cls(
             empresa=d.get("empresa", "Empresa"),
             periodo=str(d.get("periodo", "")),
@@ -213,6 +250,7 @@ class DadosFinanceiros:
             dre=_construir(DRE, d.get("dre")),
             dfc=_construir(DFC, d.get("dfc")),
             mercado=_construir(DadosMercado, d.get("mercado")),
+            exercicio_anterior=_construir(ExercicioAnterior, anterior) if anterior is not None else None,
         )
 
     @classmethod
@@ -239,6 +277,7 @@ class Indicador:
     valor: Optional[float]
     unidade: str      # "x", "%", "dias", "R$ mil", "R$/ação"
     formula: str
+    motivo: Optional[str] = None   # por que o valor não pôde ser calculado (quando valor é None)
 
 
 def _num_br(valor: float, casas: int = 2) -> str:
@@ -407,18 +446,30 @@ class AnalisadorFinanceiro:
             "6. FLUXOS DE CAIXA (COMPLEMENTAR)": self.fluxos_caixa(),
         }
 
-    def formatar_relatorio(self) -> str:
-        """Monta o relatório em texto formatado para o console/arquivo."""
+    def formatar_relatorio(self, modulos: Optional[Dict[str, List[Indicador]]] = None,
+                           extras: Optional[List[str]] = None,
+                           notas: Optional[Dict[str, List[str]]] = None) -> str:
+        """Monta o relatório em texto formatado para o console/arquivo.
+
+        modulos: módulos a imprimir (padrão: gerar_relatorio()); extras: blocos de texto já formatados,
+        inseridos antes da linha final; notas: linhas exibidas abaixo da tabela de cada módulo.
+        """
         largura = 84
         linhas = ["=" * largura,
                   "RELATÓRIO DE ANÁLISE DE DEMONSTRAÇÕES FINANCEIRAS".center(largura),
                   f"{self.dados.empresa} - {self.dados.periodo}".center(largura),
                   "(valores monetários em R$ mil)".center(largura),
                   "=" * largura]
-        for modulo, indicadores in self.gerar_relatorio().items():
+        for modulo, indicadores in (modulos if modulos is not None else self.gerar_relatorio()).items():
             linhas += ["", modulo, "-" * largura]
             for ind in indicadores:
                 linhas.append(f"  {ind.nome:<40}{formatar_valor(ind):>18}   {ind.formula}")
+                if not _valido(ind.valor) and ind.motivo:
+                    linhas.append(f"      n/d: {ind.motivo}")
+            for nota in (notas or {}).get(modulo, []):
+                linhas.append(f"  {nota}")
+        for bloco in extras or []:
+            linhas += ["", bloco]
         linhas += ["", "=" * largura,
                    "n/d = não disponível (dado ausente ou divisão por zero)."]
         return "\n".join(linhas)
@@ -451,12 +502,18 @@ DADOS_EXEMPLO: Dict[str, Any] = {
     "dre": {
         "vendas": 2_000_000, "cmv": 1_200_000, "despesas_operacionais": 450_000,
         "depreciacao_amortizacao": 90_000, "despesas_financeiras": 70_000,
-        "imposto_renda": 95_200,
+        "imposto_renda": 95_200, "lucro_antes_impostos": 280_000,
     },
     "dfc": {
         "fluxo_operacional": 310_000, "fluxo_investimento": -180_000, "fluxo_financiamento": -60_000,
     },
-    "mercado": {"preco_acao": 18.00, "numero_acoes": 100_000},  # ações em milhares
+    "mercado": {"preco_acao": 18.00, "numero_acoes": 100_000,  # ações em milhares
+                "taxa_livre_risco": 0.11, "beta": 1.2, "premio_risco_mercado": 0.055},
+    "exercicio_anterior": {
+        "vendas": 1_800_000, "ebit": 300_000, "lucro_liquido": 150_000,
+        "emprestimos_cp": 100_000, "emprestimos_lp": 380_000, "caixa": 100_000,
+        "patrimonio_liquido": 540_000,
+    },
 }
 
 

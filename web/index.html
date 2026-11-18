@@ -156,6 +156,92 @@
         </div>
 
         <div id="r-modulos" class="modulos"></div>
+
+        <!-- ================= ESTRUTURA DE CAPITAL ================= -->
+        <section id="r-estrutura" class="secao-extra" aria-labelledby="t-estrutura">
+          <h2 id="t-estrutura" class="secao-titulo">Estrutura de Capital</h2>
+          <div class="estrutura-grade">
+            <article class="cartao">
+              <h3>Parâmetros de mercado</h3>
+              <form id="form-parametros" class="form-cenario" novalidate>
+                <div class="campos-grade">
+                  <div class="campo"><label for="p-rf">Taxa livre de risco (Rf)</label>
+                    <div class="campo-sufixo"><input id="p-rf" inputmode="decimal" placeholder="13,75" autocomplete="off"><span aria-hidden="true">%</span></div></div>
+                  <div class="campo"><label for="p-beta">Beta (alavancado)</label>
+                    <input id="p-beta" inputmode="decimal" placeholder="1,2" autocomplete="off"></div>
+                  <div class="campo"><label for="p-premio">Prêmio de risco de mercado</label>
+                    <div class="campo-sufixo"><input id="p-premio" inputmode="decimal" placeholder="5,5" autocomplete="off"><span aria-hidden="true">%</span></div></div>
+                  <div class="campo"><label for="p-kd">Custo da dívida (Kd) <span class="opcional">(opcional)</span></label>
+                    <div class="campo-sufixo"><input id="p-kd" inputmode="decimal" placeholder="contábil" autocomplete="off"><span aria-hidden="true">%</span></div></div>
+                </div>
+                <p class="dica">Taxas em % ao ano. O Kd informado substitui o Kd contábil (despesas financeiras / dívida média), que costuma ser ruidoso em empresas reais.</p>
+                <div class="form-rodape">
+                  <button type="submit" class="btn btn-secundario">Aplicar parâmetros</button>
+                  <span class="form-status" aria-live="polite"></span>
+                </div>
+                <div class="alerta alerta-erro oculto" role="alert"></div>
+              </form>
+            </article>
+            <article class="cartao" id="r-wacc"></article>
+          </div>
+
+          <article class="cartao">
+            <h3>Curva do WACC <span class="unidade">D/V de 0% a 80% · beta de Hamada · ratings sintéticos</span></h3>
+            <div id="r-curva-wacc"></div>
+          </article>
+
+          <article class="cartao">
+            <h3>Benefício fiscal da dívida <span class="unidade">Modigliani-Miller com impostos · R$ mil</span></h3>
+            <div id="r-mm"></div>
+          </article>
+
+          <article class="cartao" id="r-ebit-lpa">
+            <h3>Análise EBIT-LPA <span class="unidade">captação por dívida × por ações</span></h3>
+            <form id="form-captacao" class="form-cenario" novalidate>
+              <div class="campos-grade">
+                <div class="campo"><label for="c-valor">Valor a captar <span class="opcional">(R$ mil)</span></label>
+                  <input id="c-valor" inputmode="decimal" placeholder="300.000" autocomplete="off"></div>
+                <div class="campo"><label for="c-taxa">Taxa da nova dívida</label>
+                  <div class="campo-sufixo"><input id="c-taxa" inputmode="decimal" placeholder="15" autocomplete="off"><span aria-hidden="true">%</span></div></div>
+                <div class="campo"><label for="c-preco">Preço de emissão das ações</label>
+                  <div class="campo-moeda"><span aria-hidden="true">R$</span><input id="c-preco" inputmode="numeric" placeholder="0,00" autocomplete="off"></div></div>
+                <div class="campo"><label for="c-ebit">EBIT projetado <span class="opcional">(R$ mil; padrão: atual)</span></label>
+                  <input id="c-ebit" inputmode="decimal" placeholder="atual" autocomplete="off"></div>
+              </div>
+              <div class="form-rodape">
+                <button type="submit" class="btn btn-secundario">Aplicar</button>
+                <span class="form-status" aria-live="polite"></span>
+              </div>
+              <div class="alerta alerta-erro oculto" role="alert"></div>
+            </form>
+            <div id="r-ebit-lpa-resultado"></div>
+          </article>
+        </section>
+
+        <!-- ================= AVALIAÇÃO DE PROJETOS ================= -->
+        <section id="r-projeto" class="secao-extra" aria-labelledby="t-projeto">
+          <h2 id="t-projeto" class="secao-titulo">Avaliação de Projetos</h2>
+          <article class="cartao">
+            <form id="form-projeto" class="form-cenario" novalidate>
+              <div class="campos-grade">
+                <div class="campo"><label for="j-investimento">Investimento inicial <span class="opcional">(R$ mil)</span></label>
+                  <input id="j-investimento" inputmode="decimal" placeholder="1.000" autocomplete="off"></div>
+                <div class="campo"><label for="j-taxa">Taxa de desconto</label>
+                  <div class="campo-sufixo"><input id="j-taxa" inputmode="decimal" placeholder="WACC" autocomplete="off"><span aria-hidden="true">%</span></div>
+                  <small id="j-taxa-nota" class="nota-campo"></small></div>
+                <div class="campo campo-largo"><label for="j-fluxos">Fluxos de caixa anuais <span class="opcional">(R$ mil, do ano 1 em diante, separados por / ou ;)</span></label>
+                  <input id="j-fluxos" inputmode="decimal" placeholder="500 / 400 / 300 / 100" autocomplete="off"></div>
+              </div>
+              <div class="form-rodape">
+                <button type="submit" class="btn btn-secundario">Avaliar</button>
+                <span class="form-status" aria-live="polite"></span>
+              </div>
+              <div class="alerta alerta-erro oculto" role="alert"></div>
+            </form>
+            <div id="r-projeto-resultado"></div>
+          </article>
+        </section>
+
         <p class="nota"><strong>n/d</strong> = não disponível: o indicador não pôde ser calculado porque falta um dado de entrada ou o denominador é zero. O motivo aparece abaixo de cada n/d. Indicadores de balanço usam saldos de fim de período.</p>
       </div>
     </section>

@@ -105,7 +105,7 @@ code { font-size: .9em; background: var(--superficie-2); padding: 0 .3em; border
   display: grid; grid-template-columns: 360px minmax(0, 1fr); gap: 24px; align-items: start;
 }
 @media (max-width: 960px) {
-  .layout { grid-template-columns: 1fr; padding: 16px; }
+  .layout { grid-template-columns: minmax(0, 1fr); padding: 16px; }
   .topo-conteudo { padding: 12px 16px; }
 }
 
@@ -343,10 +343,120 @@ input:focus { outline: 2px solid var(--primaria); outline-offset: -1px; border-c
 }
 .nota { font-size: .8rem; color: var(--texto-3); margin: 16px 0 0; }
 
+/* ---------- Formulário manual: grupo recolhível ---------- */
+#form-manual details.grupo { padding: 8px 12px 6px; }
+#form-manual details.grupo summary { font-size: .8rem; font-weight: 650; cursor: pointer; padding: 2px 0 6px; }
+#form-manual details.grupo .dica { margin-top: 2px; }
+
+/* ---------- Seções de estrutura de capital e projetos ---------- */
+.resultados, .secao-extra > * { min-width: 0; }
+.secao-extra { display: flex; flex-direction: column; gap: 16px; margin-top: 28px; }
+.secao-titulo { font-size: 1.15rem; font-weight: 700; padding-bottom: 6px; border-bottom: 2px solid var(--primaria-suave); }
+.estrutura-grade { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+@media (max-width: 1180px) { .estrutura-grade { grid-template-columns: 1fr; } }
+.cartao h3 { flex-wrap: wrap; gap: 4px 10px; }
+
+.form-cenario .campos-grade { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 0 12px; }
+.form-cenario .campo-largo { grid-column: 1 / -1; }
+.form-cenario .dica { margin-top: -2px; }
+.form-rodape { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.form-status { font-size: .82rem; color: var(--positivo); }
+.form-cenario .alerta { margin-top: 10px; }
+.campo-sufixo { position: relative; }
+.campo-sufixo span {
+  position: absolute; right: 10px; top: 50%; transform: translateY(-50%);
+  color: var(--texto-3); font-size: .85rem; pointer-events: none;
+}
+.campo-sufixo input { padding-right: 28px !important; }
+.form-cenario input { font-variant-numeric: tabular-nums; }
+.nota-campo { font-size: .74rem; color: var(--texto-3); line-height: 1.3; }
+.nota-campo.aviso-campo { color: color-mix(in srgb, var(--alerta-borda) 65%, var(--texto)); }
+.btn-pequeno { font-size: .8rem; padding: 6px 10px; margin-top: 8px; }
+#r-ebit-lpa-resultado, #r-projeto-resultado { margin-top: 16px; }
+#r-ebit-lpa-resultado:empty, #r-projeto-resultado:empty { display: none; }
+
+/* Cartão do WACC */
+.wacc-destaque { background: var(--primaria-suave); border-radius: 8px; padding: 12px 14px; margin-bottom: 12px; }
+.wacc-valor { font-size: 2rem; font-weight: 750; color: var(--primaria); font-variant-numeric: tabular-nums; letter-spacing: -.02em; }
+.wacc-valor.nd { color: var(--texto-3); font-size: 1.5rem; }
+.wacc-componentes { display: flex; flex-direction: column; }
+.wacc-linha { display: flex; align-items: baseline; gap: 8px; padding: 6px 0; border-bottom: 1px solid var(--borda); font-size: .88rem; }
+.wacc-linha:last-child { border-bottom: 0; }
+.wacc-linha span { flex: 1; color: var(--texto-2); }
+.wacc-linha strong { font-variant-numeric: tabular-nums; }
+.wacc-linha strong.nd { color: var(--texto-3); font-weight: 500; }
+.wacc-linha small { color: var(--texto-3); font-size: .72rem; }
+
+/* Gráficos SVG (curva do WACC e EBIT × LPA) */
+.grafico { width: 100%; height: auto; display: block; margin: 4px 0 2px; overflow: visible; }
+.grafico text { font-size: 11px; fill: var(--texto-2); font-family: inherit; }
+.grafico .eixo .grade { stroke: var(--borda); stroke-width: 1; }
+.grafico .eixo .base { stroke: var(--texto-3); stroke-width: 1; }
+.grafico .eixo .rotulo { fill: var(--texto-3); font-size: 11px; }
+.grafico .curva { fill: none; stroke: var(--s1); stroke-width: 2.5; stroke-linejoin: round; }
+.grafico .ponto { fill: var(--superficie); stroke: var(--s1); stroke-width: 2; }
+.grafico .ponto.otimo { fill: var(--positivo); stroke: var(--superficie); stroke-width: 2; }
+.grafico .rotulo-otimo { fill: var(--positivo); font-weight: 650; }
+.grafico .marca-atual line { stroke: var(--s3); stroke-width: 1.5; stroke-dasharray: 4 4; }
+.grafico .marca-atual text { fill: var(--s3); font-weight: 600; }
+.grafico .marca-atual rect { fill: var(--s3); }
+.grafico .reta-divida { stroke: var(--s1); stroke-width: 2.5; }
+.grafico .reta-acoes { stroke: var(--s5); stroke-width: 2.5; }
+.grafico .marca-indiferenca circle { fill: var(--superficie); stroke: var(--texto); stroke-width: 2; }
+.grafico .marca-indiferenca text { fill: var(--texto); font-weight: 600; }
+.legenda .leg-curva, .legenda .leg-divida { background: var(--s1); }
+.legenda .leg-otimo { background: var(--positivo); border-radius: 50%; }
+.legenda .leg-atual { background: var(--s3); }
+.legenda .leg-acoes { background: var(--s5); }
+.resumo-grafico { font-size: .88rem; color: var(--texto-2); margin: 0 0 8px; }
+.resumo-grafico strong { color: var(--texto); }
+
+.detalhes { margin-top: 12px; font-size: .86rem; }
+.detalhes summary { cursor: pointer; font-weight: 600; color: var(--primaria); }
+.detalhes ul { margin: 8px 0 0; padding-left: 18px; color: var(--texto-2); }
+.detalhes li { margin-bottom: 4px; }
+.tabela-rolagem { overflow-x: auto; margin-top: 8px; }
+.tabela-grade { font-size: .84rem; font-variant-numeric: tabular-nums; }
+.tabela-grade th {
+  text-align: right; font-size: .74rem; font-weight: 650; color: var(--texto-2); padding: 7px 10px;
+  border-bottom: 1px solid var(--borda); white-space: nowrap;
+}
+.tabela-grade td { text-align: right; padding: 6px 10px; white-space: nowrap; }
+.tabela-grade th:first-child, .tabela-grade td:first-child { text-align: left; }
+.tabela-grade tr.destaque td { background: var(--primaria-suave); font-weight: 650; }
+.tabela-grade td.neg { color: var(--negativo); }
+.chamada-cartao { border: 0; border-radius: 8px; }
+
+/* Modigliani-Miller */
+.mm { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+
+/* Projetos */
+.recomendacao {
+  display: flex; align-items: baseline; gap: 6px 12px; flex-wrap: wrap; border-radius: 8px;
+  padding: 12px 14px; margin-bottom: 12px; border-left: 4px solid var(--texto-3); background: var(--superficie-2);
+}
+.recomendacao span { font-size: .8rem; color: var(--texto-2); font-weight: 600; }
+.recomendacao strong { font-size: 1.3rem; }
+.recomendacao small { color: var(--texto-3); font-size: .8rem; flex-basis: 100%; }
+.recomendacao.rec-aceitar { border-left-color: var(--positivo); background: color-mix(in srgb, var(--positivo) 10%, var(--superficie)); }
+.recomendacao.rec-aceitar strong { color: var(--positivo); }
+.recomendacao.rec-rejeitar { border-left-color: var(--negativo); background: color-mix(in srgb, var(--negativo) 10%, var(--superficie)); }
+.recomendacao.rec-rejeitar strong { color: var(--negativo); }
+.kpis-projeto { grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); margin-bottom: 12px; }
+.kpis-projeto .kpi { box-shadow: none; background: var(--superficie-2); }
+.kpis-projeto .kpi-valor { font-size: 1.15rem; white-space: normal; }
+
+@media (max-width: 640px) {
+  .wacc-valor { font-size: 1.7rem; }
+  .grafico text, .grafico .eixo .rotulo { font-size: 21px; }
+  .mm .dupont-op.igual { display: none; }
+  .mm .dupont-fator.resultado { flex-basis: 100%; }
+}
+
 /* ---------- Impressão ---------- */
 @media print {
   body { background: #fff; }
-  .topo, .painel, .acoes-relatorio { display: none !important; }
+  .topo, .painel, .acoes-relatorio, .form-cenario { display: none !important; }
   .layout { display: block; padding: 0; }
   .cartao, .modulo, .kpi { box-shadow: none; break-inside: avoid; }
 }

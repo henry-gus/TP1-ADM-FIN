@@ -13,6 +13,9 @@ const estado = {
   baseId: 0,
   analiseId: 0,
   pollTimer: null,
+  requisicao: null,       // última análise-base: {mensagem, caminho, corpo, origem}
+  blocos: {},             // blocos aplicados sobre ela: parametros, captacao, projeto
+  mercadoExtra: {},       // parâmetros de mercado preservados ao editar dados manualmente
 };
 
 // ---------------------------------------------------------------------------
@@ -36,7 +39,9 @@ async function api(caminho, corpo) {
 const valido = (v) => typeof v === "number" && Number.isFinite(v);
 
 function numBR(v, casas = 2) {
-  return v.toLocaleString("pt-BR", { minimumFractionDigits: casas, maximumFractionDigits: casas });
+  // O pequeno ajuste arredonda meio para cima apesar do ponto flutuante (1,485 -> 1,49)
+  const ajustado = v + Math.sign(v) * Math.abs(v) * 1e-12;
+  return ajustado.toLocaleString("pt-BR", { minimumFractionDigits: casas, maximumFractionDigits: casas });
 }
 
 /** Valor em R$ mil -> texto curto (R$ 1,23 bi / R$ 45,6 mi / R$ 789 mil). */
@@ -54,7 +59,7 @@ function lerNumeroBR(texto) {
   let t = String(texto ?? "").replace(/R\$/g, "").replace(/\s/g, "").trim();
   if (!t) return null;
   if (t.includes(",")) t = t.replace(/\./g, "").replace(",", ".");
-  else if (/^[-+]?\d{1,3}(\.\d{3})+$/.test(t)) t = t.replace(/\./g, "");
+  else if (/^[-+]?[1-9]\d{0,2}(\.\d{3})+$/.test(t)) t = t.replace(/\./g, "");
   const n = Number(t);
   if (!Number.isFinite(n)) throw new Error(`Número inválido: "${texto}"`);
   return n;
@@ -272,13 +277,13 @@ async function analisarCVM() {
     mostrarErro(e.message);
     return;
   }
-  await executarAnalise(`Lendo as demonstrações de ${estado.empresa.nome}…`, () => api("/api/analisar/cvm", {
+  await executarAnalise(`Lendo as demonstrações de ${estado.empresa.nome}…`, "/api/analisar/cvm", {
     ...estado.empresa,
     ano: anoSelecionado(),
     consolidado: $("#cvm-consolidado").checked,
     preco,
     acoes,
-  }), "cvm");
+  }, "cvm");
 }
 
 function lerCampoMercado(seletor, nome) {
@@ -311,8 +316,8 @@ async function analisarArquivo(arquivo) {
     return;
   }
   if (dados && dados.dados_entrada) dados = dados.dados_entrada;  // aceita também relatorio.json
-  await executarAnalise("Calculando indicadores…",
-    () => api("/api/analisar/dados", { dados, fonte: `arquivo ${arquivo.name}` }), "arquivo");
+  await executarAnalise("Calculando indicadores…", "/api/analisar/dados",
+    { dados, fonte: `arquivo ${arquivo.name}` }, "arquivo");
 }
 
 // ---------------------------------------------------------------------------
@@ -334,7 +339,7 @@ const CAMPOS = [
     ["vendas", "Receita líquida de vendas"], ["cmv", "CMV"], ["lucro_bruto", "Lucro bruto", true],
     ["despesas_operacionais", "Despesas operacionais"], ["depreciacao_amortizacao", "Depreciação e amortização"],
     ["ebit", "EBIT", true], ["despesas_financeiras", "Despesas financeiras"], ["imposto_renda", "IR e CSLL"],
-    ["lucro_liquido", "Lucro líquido", true],
+    ["lucro_antes_impostos", "Lucro antes dos impostos (LAIR)", true], ["lucro_liquido", "Lucro líquido", true],
   ] },
   { secao: "dfc", titulo: "Fluxos de Caixa", campos: [
     ["fluxo_operacional", "Operacional (FCO)"], ["fluxo_investimento", "Investimento (FCI)"],
@@ -343,14 +348,23 @@ const CAMPOS = [
   { secao: "mercado", titulo: "Mercado", campos: [
     ["preco_acao", "Preço da ação"], ["numero_acoes", "Nº de ações (milhares)"],
   ] },
+  { secao: "exercicio_anterior", titulo: "Exercício anterior", recolhivel: true,
+    dica: "Opcional. Usado na dívida média do Kd e nos graus de alavancagem (GAO, GAF e GAC).", campos: [
+    ["vendas", "Receita líquida de vendas"], ["ebit", "EBIT"], ["lucro_liquido", "Lucro líquido"],
+    ["emprestimos_cp", "Empréstimos de curto prazo"], ["emprestimos_lp", "Empréstimos de longo prazo"],
+    ["caixa", "Caixa e equivalentes"], ["patrimonio_liquido", "Patrimônio líquido"],
+  ] },
 ];
+const CAMPOS_MERCADO_EXTRA = ["taxa_livre_risco", "beta", "premio_risco_mercado", "custo_divida"];
 
 function montarFormulario() {
   const html = [`
     <div class="campo"><label for="m-empresa">Empresa</label><input id="m-empresa" type="text" placeholder="Nome da empresa"></div>
     <div class="campo"><label for="m-periodo">Período</label><input id="m-periodo" type="text" placeholder="Exercício de 2025"></div>`];
   for (const g of CAMPOS) {
-    html.push(`<fieldset class="grupo"><legend>${g.titulo}</legend>`);
+    html.push(g.recolhivel
+      ? `<details class="grupo recolhivel"><summary>${g.titulo} <span class="opcional">(opcional)</span></summary><p class="dica">${g.dica}</p>`
+      : `<fieldset class="grupo"><legend>${g.titulo}</legend>`);
     for (const [nome, rotulo, total] of g.campos) {
       const id = `m-${g.secao}-${nome}`;
       const preco = nome === "preco_acao";
@@ -359,13 +373,17 @@ function montarFormulario() {
       html.push(`<div class="linha${total ? " total" : ""}"><label for="${id}">${rotulo}</label>
         ${preco ? `<div class="campo-moeda"><span aria-hidden="true">R$</span>${campo}</div>` : campo}</div>`);
     }
-    html.push("</fieldset>");
+    html.push(g.recolhivel ? "</details>" : "</fieldset>");
   }
   $("#form-manual").innerHTML = html.join("");
   $$('#form-manual [data-mascara="preco"]').forEach(aplicarMascaraPreco);
 }
 
 function preencherFormulario(dados) {
+  estado.mercadoExtra = {};
+  for (const c of CAMPOS_MERCADO_EXTRA) if (valido(dados?.mercado?.[c])) estado.mercadoExtra[c] = dados.mercado[c];
+  const ant = dados?.exercicio_anterior;
+  $("details.recolhivel").open = Boolean(ant && Object.values(ant).some(valido));
   $("#m-empresa").value = dados?.empresa ?? "";
   $("#m-periodo").value = dados?.periodo ?? "";
   $$("#form-manual input[data-secao]").forEach((input) => {
@@ -380,7 +398,7 @@ function lerFormulario() {
   const dados = {
     empresa: $("#m-empresa").value.trim() || "Empresa",
     periodo: $("#m-periodo").value.trim(),
-    balanco: {}, dre: {}, dfc: {}, mercado: {},
+    balanco: {}, dre: {}, dfc: {}, mercado: {}, exercicio_anterior: {},
   };
   for (const input of $$("#form-manual input[data-secao]")) {
     try {
@@ -391,6 +409,8 @@ function lerFormulario() {
       throw new Error(`${$(`label[for="${input.id}"]`).textContent}: ${e.message}`);
     }
   }
+  if (!Object.keys(dados.exercicio_anterior).length) dados.exercicio_anterior = null;
+  dados.mercado = { ...estado.mercadoExtra, ...dados.mercado };  // mantém Rf, beta, prêmio e Kd
   return dados;
 }
 
@@ -398,8 +418,7 @@ async function analisarManual() {
   mostrarErro("");
   let dados;
   try { dados = lerFormulario(); } catch (e) { mostrarErro(e.message); return; }
-  await executarAnalise("Calculando indicadores…",
-    () => api("/api/analisar/dados", { dados, fonte: estado.fonteManual }), "manual");
+  await executarAnalise("Calculando indicadores…", "/api/analisar/dados", { dados, fonte: estado.fonteManual }, "manual");
 }
 
 function editarDados() {
@@ -419,15 +438,19 @@ function mostrarTela(qual) {
   for (const id of ["vazio", "carregando", "relatorio"]) $(`#${id}`).classList.toggle("oculto", id !== qual);
 }
 
-async function executarAnalise(mensagem, chamada, origem) {
+/** Nova análise-base (CVM, arquivo, manual ou exemplo): descarta parâmetros, cenário e projeto anteriores. */
+async function executarAnalise(mensagem, caminho, corpo, origem) {
   mostrarErro("");
   const id = ++estado.analiseId;  // se o usuário disparar outra análise, só a última vale
   const telaAnterior = estado.resultado ? "relatorio" : "vazio";
   $("#carregando-texto").textContent = mensagem;
   mostrarTela("carregando");
   try {
-    const r = await chamada();
+    const r = await api(caminho, corpo);
     if (id !== estado.analiseId) return;
+    estado.requisicao = { mensagem, caminho, corpo, origem };
+    estado.blocos = {};
+    $("#j-taxa").dataset.editado = "";
     estado.resultado = r;
     estado.origem = origem;
     renderizar(r);
@@ -437,6 +460,35 @@ async function executarAnalise(mensagem, chamada, origem) {
     if (id !== estado.analiseId) return;
     mostrarErro(e.message);
     mostrarTela(telaAnterior);
+  }
+}
+
+/** Reenvia a última análise com blocos novos (parâmetros, captação ou projeto), sem sair da tela. */
+async function reanalisar(blocosExtras, form) {
+  const req = estado.requisicao;
+  if (!req) return;
+  const erro = form.querySelector(".alerta-erro"), status = form.querySelector(".form-status");
+  const botao = form.querySelector("button[type=submit]");
+  erro.classList.add("oculto");
+  const blocos = { ...estado.blocos, ...blocosExtras };
+  const id = ++estado.analiseId;
+  botao.disabled = true;
+  status.textContent = "Recalculando…";
+  try {
+    const r = await api(req.caminho, { ...req.corpo, ...blocos });
+    if (id !== estado.analiseId) return;
+    estado.blocos = blocos;
+    estado.resultado = r;
+    renderizar(r);
+    status.textContent = "✓ Aplicado";
+    setTimeout(() => { if (status.textContent === "✓ Aplicado") status.textContent = ""; }, 2500);
+  } catch (e) {
+    if (id !== estado.analiseId) return;
+    status.textContent = "";
+    erro.textContent = e.message;
+    erro.classList.remove("oculto");
+  } finally {
+    botao.disabled = false;
   }
 }
 
@@ -525,6 +577,7 @@ const TITULOS_MODULOS = {
   4: "Estrutura de Capital e Alavancagem",
   5: "Múltiplos e Avaliação de Mercado",
   6: "Fluxos de Caixa (complementar)",
+  7: "Custo de Capital (WACC)",
 };
 
 /** Avisos que invalidam a análise inteira (ex.: banco) vêm primeiro. */
@@ -563,6 +616,10 @@ function renderizar(r) {
     ["ROE", ind["ROE"]?.valor],
   ], (v) => `${numBR(v * 100, 1)}%`, "var(--s1)");
   renderizarModulos(r.modulos, base);
+  renderizarEstrutura(r);
+  renderizarSimulacao(r);
+  renderizarEbitLpa(r);
+  renderizarProjeto(r);
 }
 
 function renderizarKpis(ind, base) {
@@ -581,7 +638,7 @@ function renderizarKpis(ind, base) {
     return `<div class="kpi" title="${escapar(i.formula)}">
       <div class="kpi-rotulo">${escapar(rotulo)}</div>
       <div class="kpi-valor${valido(i.valor) ? "" : " nd"}">${escapar(texto)}</div>
-      ${valido(i.valor) ? "" : `<div class="motivo">${escapar(motivoND(nome, base))}</div>`}
+      ${valido(i.valor) ? "" : `<div class="motivo">${escapar(i.motivo || motivoND(nome, base))}</div>`}
       <div class="kpi-formula">${escapar(i.formula)}</div></div>`;
   }).join("");
 }
@@ -680,9 +737,261 @@ function renderizarModulos(modulos, base) {
       <table class="tabela"><tbody>${lista.map((i) => `<tr>
         <td class="nome">${escapar(i.nome)}</td>
         <td class="v${valido(i.valor) ? (i.valor < 0 ? " neg" : "") : " nd"}">${escapar(i.valor_formatado)}${
-          valido(i.valor) ? "" : `<span class="motivo">${escapar(motivoND(i.nome, base))}</span>`}</td>
+          valido(i.valor) ? "" : `<span class="motivo">${escapar(i.motivo || motivoND(i.nome, base))}</span>`}</td>
         <td class="f">${escapar(i.formula)}</td></tr>`).join("")}</tbody></table></section>`;
   }).join("");
+}
+
+// ---------------------------------------------------------------------------
+// Estrutura de capital: parâmetros, WACC, curva, MM e EBIT-LPA
+// ---------------------------------------------------------------------------
+const MODULO_WACC = "7. CUSTO DE CAPITAL (WACC)";
+const pct = (v, casas = 2) => (valido(v) ? `${numBR(v * 100, casas)}%` : "n/d");
+/** Fração -> texto em % para um campo editável (0,1375 -> "13,75"). */
+const pctCampo = (v) => (valido(v) ? (v * 100).toLocaleString("pt-BR", { useGrouping: false, maximumFractionDigits: 4 }) : "");
+const numCampo = (v) => (valido(v) ? v.toLocaleString("pt-BR", { useGrouping: false, maximumFractionDigits: 4 }) : "");
+
+function indicadoresWacc(r) {
+  const mapa = {};
+  for (const i of r.modulos[MODULO_WACC] || []) mapa[i.nome] = i;
+  return mapa;
+}
+
+function aplicarParametros(ev) {
+  ev.preventDefault();
+  reanalisar({ parametros: {
+    rf: $("#p-rf").value.trim(), beta: $("#p-beta").value.trim(),
+    premio: $("#p-premio").value.trim(), kd: $("#p-kd").value.trim(),
+  } }, ev.currentTarget);
+}
+
+function aplicarCaptacao(ev) {
+  ev.preventDefault();
+  reanalisar({ captacao: {
+    valor: $("#c-valor").value.trim(), taxa: $("#c-taxa").value.trim(),
+    preco_emissao: $("#c-preco").value.trim(), ebit_projetado: $("#c-ebit").value.trim(),
+  } }, ev.currentTarget);
+}
+
+function avaliarProjeto(ev) {
+  ev.preventDefault();
+  const taxa = $("#j-taxa");
+  const fluxos = $("#j-fluxos").value.split(/[\/;\n]+/).map((f) => f.trim()).filter(Boolean);
+  reanalisar({ projeto: {
+    investimento: $("#j-investimento").value.trim(), fluxos,
+    // Taxa igual à sugerida = usar o WACC exato (não o valor arredondado mostrado no campo)
+    taxa: taxa.dataset.editado === "1" ? taxa.value.trim() : "",
+  } }, ev.currentTarget);
+}
+
+function irParaParametros() {
+  $("#form-parametros").scrollIntoView({ behavior: "smooth", block: "center" });
+  const vazio = ["#p-rf", "#p-beta", "#p-premio"].map((s) => $(s)).find((c) => !c.value.trim());
+  (vazio || $("#p-rf")).focus({ preventScroll: true });
+}
+
+function renderizarEstrutura(r) {
+  const m = r.dados_entrada?.mercado || {};
+  $("#p-rf").value = pctCampo(m.taxa_livre_risco);
+  $("#p-beta").value = numCampo(m.beta);
+  $("#p-premio").value = pctCampo(m.premio_risco_mercado);
+  $("#p-kd").value = pctCampo(m.custo_divida);
+
+  const w = indicadoresWacc(r);
+  const meta = r.estrutura_capital?.custo_capital_meta || {};
+  const wacc = w["WACC"];
+  if (!wacc) { $("#r-wacc").innerHTML = ""; return; }
+  const informado = meta.kd_utilizado === "informado";
+  const linha = (rotulo, i, extra = "") => `<div class="wacc-linha"><span>${rotulo}</span><strong class="${valido(i?.valor) ? "" : "nd"}">${
+    escapar(i?.valor_formatado ?? "n/d")}</strong>${extra}</div>`;
+  const kd = informado
+    ? `<div class="wacc-linha"><span>Kd informado</span><strong>${pct(m.custo_divida)}</strong></div>`
+    : linha("Kd contábil", w["Custo da Dívida (Kd)"]);
+  $("#r-wacc").innerHTML = `
+    <h3>Custo médio ponderado de capital</h3>
+    <div class="wacc-destaque">
+      <div class="wacc-valor${valido(wacc.valor) ? "" : " nd"}">${escapar(wacc.valor_formatado)}</div>
+      ${valido(wacc.valor) ? `<div class="kpi-formula">${escapar(wacc.formula)}</div>`
+        : `<div class="motivo">${escapar(wacc.motivo || "")}</div>
+           <button type="button" class="btn btn-fantasma btn-pequeno" data-acao="parametros">Informar parâmetros</button>`}
+    </div>
+    <div class="wacc-componentes">
+      ${kd}
+      ${linha("Alíquota aplicada", w["Alíquota Aplicada"], `<small>${escapar(meta.origem_aliquota || "")}</small>`)}
+      ${linha("Kd após impostos", w["Kd após Impostos"])}
+      ${linha("Ke (CAPM)", w["Custo do Capital Próprio (Ke)"])}
+      ${linha("Peso da dívida (D/V)", w["Peso da Dívida (D/V)"])}
+      ${linha("Peso do capital próprio (E/V)", w["Peso do Capital Próprio (E/V)"])}
+    </div>
+    <p class="dupont-nota">Pesos a valor ${meta.base_pesos === "mercado" ? "de mercado" : "contábil (sem preço da ação)"} ·
+      Kd ${escapar(meta.kd_utilizado || "")} · alíquota ${escapar(meta.origem_aliquota || "")}</p>`;
+  $("#r-wacc [data-acao=parametros]")?.addEventListener("click", irParaParametros);
+}
+
+/** Escala linear [d0, d1] -> [r0, r1]. */
+const escala = (d0, d1, r0, r1) => (v) => r0 + ((v - d0) / (d1 - d0 || 1)) * (r1 - r0);
+
+/** Valores "redondos" para as marcas de um eixo, cobrindo todo o intervalo [min, max]. */
+function marcas(min, max, quantas = 5) {
+  const bruto = (max - min) / quantas || Math.abs(max) || 1;
+  const pot = 10 ** Math.floor(Math.log10(bruto));
+  const passo = [1, 2, 2.5, 5, 10].map((f) => f * pot).find((p) => p >= bruto);
+  const inicio = Math.floor(min / passo + 1e-9), fim = Math.ceil(max / passo - 1e-9);
+  const lista = [];
+  for (let k = inicio; k <= Math.max(fim, inicio + 1); k++) lista.push(k * passo || 0);  // "|| 0" evita -0
+  return lista;
+}
+
+const GRAF = { w: 640, h: 300, m: { t: 18, r: 20, b: 44, l: 64 } };
+
+function eixos(x, y, ticksX, ticksY, fmtX, fmtY, rotX, rotY) {
+  const { w, h, m } = GRAF;
+  const gx = ticksX.map((v) => `<g><line class="grade" x1="${x(v)}" x2="${x(v)}" y1="${m.t}" y2="${h - m.b}"/>
+    <text x="${x(v)}" y="${h - m.b + 16}" text-anchor="middle">${fmtX(v)}</text></g>`).join("");
+  const gy = ticksY.map((v) => `<g><line class="grade" x1="${m.l}" x2="${w - m.r}" y1="${y(v)}" y2="${y(v)}"/>
+    <text x="${m.l - 8}" y="${y(v) + 4}" text-anchor="end">${fmtY(v)}</text></g>`).join("");
+  return `<g class="eixo">${gx}${gy}
+    <line class="base" x1="${m.l}" x2="${w - m.r}" y1="${h - m.b}" y2="${h - m.b}"/>
+    <text class="rotulo" x="${(m.l + w - m.r) / 2}" y="${h - 6}" text-anchor="middle">${rotX}</text>
+    <text class="rotulo" transform="translate(14 ${(m.t + h - m.b) / 2}) rotate(-90)" text-anchor="middle">${rotY}</text></g>`;
+}
+
+function renderizarSimulacao(r) {
+  const sim = r.estrutura_capital?.simulacao;
+  const alvo = $("#r-curva-wacc");
+  if (!sim) { alvo.innerHTML = ""; $("#r-mm").innerHTML = ""; return; }
+  if (sim.faltando) {
+    alvo.innerHTML = `<div class="chamada chamada-cartao"><p><strong>Para simular, informe:</strong> ${escapar(sim.faltando.join(", "))}.</p>
+      <button type="button" class="btn btn-secundario" data-acao="parametros">Informar parâmetros</button></div>`;
+    $("#r-mm").innerHTML = `<p class="sem-dados">Depende dos mesmos dados da simulação.</p>`;
+    return;
+  }
+  const { w, h, m } = GRAF;
+  const pts = sim.pontos;
+  const waccs = pts.map((p) => p.wacc).concat(valido(sim.atual.wacc_calculado) ? [sim.atual.wacc_calculado] : []);
+  const ticksY = marcas(Math.min(...waccs) * 100, Math.max(...waccs) * 100, 5).map((v) => v / 100);
+  const y = escala(ticksY[0], ticksY[ticksY.length - 1], h - m.b, m.t);
+  const x = escala(0, 0.8, m.l, w - m.r);
+  const caminho = pts.map((p, i) => `${i ? "L" : "M"}${x(p.dv).toFixed(1)},${y(p.wacc).toFixed(1)}`).join("");
+  const otimo = pts.find((p) => p.dv === sim.otimo.dv);
+  const atual = sim.atual;
+  const marcaAtual = valido(atual.dv) && atual.dv <= 0.8 ? `<g class="marca-atual">
+      <line x1="${x(atual.dv)}" x2="${x(atual.dv)}" y1="${m.t}" y2="${h - m.b}"/>
+      <text x="${x(atual.dv) + 5}" y="${m.t + 10}">atual ${pct(atual.dv, 1)}</text>
+      ${valido(atual.wacc_calculado) ? `<rect x="${x(atual.dv) - 5}" y="${y(atual.wacc_calculado) - 5}" width="10" height="10"
+        transform="rotate(45 ${x(atual.dv)} ${y(atual.wacc_calculado)})"><title>WACC calculado (Kd contábil): ${pct(atual.wacc_calculado)}</title></rect>` : ""}</g>` : "";
+  const circulos = pts.map((p) => `<circle class="${p === otimo ? "ponto otimo" : "ponto"}" cx="${x(p.dv)}" cy="${y(p.wacc)}" r="${p === otimo ? 6.5 : 4}">
+      <title>D/V ${pct(p.dv, 0)} · WACC ${pct(p.wacc)} · rating ${p.rating}${valido(p.kd) ? ` · Kd ${pct(p.kd)}` : ""}</title></circle>`).join("");
+  const rotuloOtimo = `<text class="rotulo-otimo" x="${x(otimo.dv)}" y="${y(otimo.wacc) - 12}" text-anchor="middle">ótimo ${pct(otimo.wacc)}</text>`;
+  const linhas = pts.map((p) => `<tr class="${p === otimo ? "destaque" : ""}"><td>${pct(p.dv, 0)}</td><td>${numBR(p.beta)}</td><td>${pct(p.ke)}</td>
+      <td>${valido(p.cobertura) ? `${numBR(p.cobertura)}x` : "—"}</td><td>${p.rating}</td><td>${valido(p.kd) ? pct(p.kd) : "—"}</td>
+      <td>${pct(p.aliquota)}</td><td><strong>${pct(p.wacc)}</strong></td></tr>`).join("");
+  alvo.innerHTML = `
+    <p class="resumo-grafico">Ótimo em <strong>D/V = ${pct(otimo.dv, 0)}</strong> com WACC de <strong>${pct(otimo.wacc)}</strong>
+      (rating ${escapar(otimo.rating)}). Hoje: D/V de ${pct(atual.dv)} e WACC calculado de ${pct(atual.wacc_calculado)}.
+      Beta desalavancado: ${numBR(sim.beta_desalavancado, 4)}.</p>
+    <svg class="grafico" viewBox="0 0 ${w} ${h}" role="img" aria-label="Curva do WACC por nível de endividamento">
+      ${eixos(x, y, [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8], ticksY, (v) => `${Math.round(v * 100)}%`, (v) => `${numBR(v * 100, 1)}%`, "Dívida / Valor (D/V)", "WACC")}
+      ${marcaAtual}<path class="curva" d="${caminho}"/>${circulos}${rotuloOtimo}
+    </svg>
+    <div class="legenda"><span><i class="leg-curva"></i>WACC simulado</span><span><i class="leg-otimo"></i>Ponto ótimo</span>
+      <span><i class="leg-atual"></i>Estrutura atual (WACC calculado)</span></div>
+    <details class="detalhes"><summary>Tabela da simulação (${pts.length} pontos)</summary>
+      <div class="tabela-rolagem"><table class="tabela tabela-grade"><thead><tr><th>D/V</th><th>Beta</th><th>Ke</th><th>Cobertura</th>
+        <th>Rating</th><th>Kd</th><th>Alíquota</th><th>WACC</th></tr></thead><tbody>${linhas}</tbody></table></div></details>
+    <details class="detalhes"><summary>Premissas da simulação</summary>
+      <ul>${sim.premissas.map((p) => `<li>${escapar(p)}</li>`).join("")}</ul></details>`;
+
+  const mm = sim.modigliani_miller;
+  $("#r-mm").innerHTML = `<div class="mm">
+      <div class="dupont-fator"><div class="v">${moedaCurta(mm.valor_desalavancado)}</div><div class="r">Empresa sem dívida (VU)</div></div>
+      <span class="dupont-op">+</span>
+      <div class="dupont-fator"><div class="v">${moedaCurta(mm.beneficio_fiscal)}</div><div class="r">Benefício fiscal (t × D)</div></div>
+      <span class="dupont-op igual">=</span>
+      <div class="dupont-fator resultado"><div class="v">${moedaCurta(mm.valor_alavancado)}</div><div class="r">Empresa alavancada (VL = D + E)</div></div>
+    </div>
+    <p class="dupont-nota">Proposição I de Modigliani-Miller com impostos (dívida perpétua): VL = VU + t × D, com t = ${pct(sim.aliquota)}.</p>`;
+}
+
+function renderizarEbitLpa(r) {
+  const e = r.estrutura_capital?.ebit_lpa;
+  const alvo = $("#r-ebit-lpa-resultado");
+  if (!e) {
+    alvo.innerHTML = `<p class="dica">Informe o valor a captar, a taxa da nova dívida e o preço de emissão para comparar o LPA das duas formas de financiamento.</p>`;
+    return;
+  }
+  if (e.motivo) { alvo.innerHTML = `<p class="sem-dados">Análise indisponível: ${escapar(e.motivo)}.</p>`; return; }
+  const { w, h, m } = GRAF;
+  const [p0, p1] = e.pontos_grafico;
+  const lpas = [p0.lpa_divida, p0.lpa_acoes, p1.lpa_divida, p1.lpa_acoes];
+  const ticksY = marcas(Math.min(...lpas), Math.max(...lpas), 5);
+  const ticksX = marcas(0, p1.ebit, 5);
+  const x = escala(0, ticksX[ticksX.length - 1], m.l, w - m.r);
+  const y = escala(ticksY[0], ticksY[ticksY.length - 1], h - m.b, m.t);
+  const reta = (a, b, cls) => `<line class="${cls}" x1="${x(p0.ebit)}" y1="${y(a)}" x2="${x(p1.ebit)}" y2="${y(b)}"/>`;
+  const ind = valido(e.ebit_indiferenca) && e.ebit_indiferenca >= 0 && e.ebit_indiferenca <= p1.ebit
+    ? `<g class="marca-indiferenca"><circle cx="${x(e.ebit_indiferenca)}" cy="${y(e.lpa_indiferenca)}" r="6"><title>Indiferença: EBIT ${moedaCurta(e.ebit_indiferenca)}, LPA R$ ${numBR(e.lpa_indiferenca)}</title></circle>
+        <text x="${x(e.ebit_indiferenca) + 9}" y="${y(e.lpa_indiferenca) + 16}">EBIT* ${moedaCurta(e.ebit_indiferenca)}</text></g>` : "";
+  const avaliado = `<g class="marca-atual"><line x1="${x(e.ebit_avaliado)}" x2="${x(e.ebit_avaliado)}" y1="${m.t}" y2="${h - m.b}"/>
+      <text x="${x(e.ebit_avaliado) + 5}" y="${m.t + 10}">EBIT ${e.origem_ebit === "projetado" ? "projetado" : "atual"}</text></g>`;
+  const linhas = e.alternativas.map((a) => `<tr class="${a.nome === e.melhor_no_ebit ? "destaque" : ""}"><td>${a.nome === "Dívida" ? "Emitir dívida" : "Emitir ações"}</td>
+      <td>${numBR(a.juros, 0)}</td><td>${numBR(a.acoes, 0)}</td><td><strong>R$ ${numBR(a.lpa_no_ebit)}</strong></td></tr>`).join("");
+  const conclusao = valido(e.ebit_indiferenca)
+    ? `EBIT de indiferença: <strong>${moedaCurta(e.ebit_indiferenca)}</strong> (LPA de R$ ${numBR(e.lpa_indiferenca)}). Acima dele, a dívida dá maior LPA; abaixo, as ações.`
+    : `As retas são paralelas: não há ponto de indiferença e a alternativa <strong>${escapar(e.dominante)}</strong> domina em qualquer EBIT.`;
+  alvo.innerHTML = `
+    <div class="tabela-rolagem"><table class="tabela tabela-grade"><thead><tr><th>Alternativa</th><th>Juros (R$ mil)</th><th>Ações (mil)</th>
+      <th>LPA no EBIT avaliado</th></tr></thead><tbody>${linhas}</tbody></table></div>
+    <p class="resumo-grafico">${conclusao} No EBIT ${e.origem_ebit} (${moedaCurta(e.ebit_avaliado)}), ${
+      e.melhor_no_ebit === "Empate" ? "as alternativas empatam" : `a melhor alternativa é <strong>${e.melhor_no_ebit === "Dívida" ? "a dívida" : "a emissão de ações"}</strong>`}.
+      Alíquota: ${pct(e.aliquota)}.</p>
+    <svg class="grafico" viewBox="0 0 ${w} ${h}" role="img" aria-label="Retas de LPA em função do EBIT para dívida e ações">
+      ${eixos(x, y, ticksX, ticksY, (v) => numBR(v / 1000, 0), (v) => numBR(v, 2), "EBIT (R$ milhões)", "LPA (R$)")}
+      ${avaliado}${reta(p0.lpa_divida, p1.lpa_divida, "reta-divida")}${reta(p0.lpa_acoes, p1.lpa_acoes, "reta-acoes")}${ind}
+    </svg>
+    <div class="legenda"><span><i class="leg-divida"></i>Dívida</span><span><i class="leg-acoes"></i>Ações</span>
+      <span><i class="leg-atual"></i>EBIT avaliado</span></div>
+    ${(e.avisos || []).map((a) => `<p class="dica">${escapar(a)}</p>`).join("")}`;
+}
+
+// ---------------------------------------------------------------------------
+// Avaliação de projetos
+// ---------------------------------------------------------------------------
+const anos = (v) => (valido(v) ? `${numBR(v)} anos` : "não recuperado no horizonte");
+const RECOMENDACOES = { aceitar: "Aceitar", rejeitar: "Rejeitar", indiferente: "Indiferente" };
+
+function renderizarProjeto(r) {
+  const wacc = indicadoresWacc(r)["WACC"];
+  const taxa = $("#j-taxa"), nota = $("#j-taxa-nota");
+  taxa.dataset.wacc = valido(wacc?.valor) ? numBR(wacc.valor * 100) : "";
+  if (taxa.dataset.editado !== "1") taxa.value = taxa.dataset.wacc;
+  nota.textContent = valido(wacc?.valor) ? `Sugerida: WACC de ${wacc.valor_formatado}. Altere se quiser.`
+    : `WACC indisponível (${wacc?.motivo || "dados insuficientes"}): informe a taxa.`;
+  nota.classList.toggle("aviso-campo", !valido(wacc?.valor));
+
+  const p = r.avaliacao_projeto, alvo = $("#r-projeto-resultado");
+  if (!p) { alvo.innerHTML = ""; return; }
+  const cartao = (rotulo, valor, extra = "") => `<div class="kpi"><div class="kpi-rotulo">${rotulo}</div>
+    <div class="kpi-valor${valor === "n/d" ? " nd" : ""}">${escapar(valor)}</div>${extra}</div>`;
+  const linhas = p.tabela.map((t) => `<tr><td>${t.ano}</td><td class="${t.fluxo < 0 ? "neg" : ""}">${numBR(t.fluxo)}</td>
+      <td>${numBR(t.fluxo_descontado)}</td><td class="${t.acumulado < 0 ? "neg" : ""}">${numBR(t.acumulado)}</td>
+      <td class="${t.acumulado_descontado < 0 ? "neg" : ""}">${numBR(t.acumulado_descontado)}</td></tr>`).join("");
+  alvo.innerHTML = `
+    <div class="recomendacao rec-${p.recomendacao}">
+      <span>Recomendação pelo VPL</span><strong>${RECOMENDACOES[p.recomendacao]}</strong>
+      <small>Taxa de ${pct(p.taxa)} (${p.origem_taxa === "WACC" ? "WACC da empresa" : "informada"})</small>
+    </div>
+    <div class="kpis kpis-projeto">
+      ${cartao("VPL", `R$ ${numBR(p.vpl)} mil`)}
+      ${cartao("TIR", valido(p.tir) ? pct(p.tir) : "n/d", valido(p.tir) ? "" : `<div class="motivo">${escapar(p.motivo_tir || "")}</div>`)}
+      ${cartao("Payback simples", anos(p.payback_simples))}
+      ${cartao("Payback descontado", anos(p.payback_descontado))}
+      ${cartao("Índice de lucratividade", valido(p.indice_lucratividade) ? `${numBR(p.indice_lucratividade)}x` : "n/d")}
+    </div>
+    ${p.avisos.length ? `<div class="avisos"><ul>${p.avisos.map((a) => `<li>${escapar(a)}</li>`).join("")}</ul></div>` : ""}
+    <details class="detalhes" open><summary>Fluxos ano a ano (R$ mil)</summary>
+      <div class="tabela-rolagem"><table class="tabela tabela-grade"><thead><tr><th>Ano</th><th>Fluxo</th><th>Descontado</th>
+        <th>Acumulado</th><th>Acumulado descontado</th></tr></thead><tbody>${linhas}</tbody></table></div></details>`;
 }
 
 /** Leva o usuário ao campo de preço adequado à origem da análise. */
@@ -747,7 +1056,7 @@ async function iniciar() {
   ["dragenter", "dragover"].forEach((t) => zona.addEventListener(t, (ev) => { ev.preventDefault(); zona.classList.add("arrastando"); }));
   ["dragleave", "drop"].forEach((t) => zona.addEventListener(t, () => zona.classList.remove("arrastando")));
   zona.addEventListener("drop", (ev) => { ev.preventDefault(); analisarArquivo(ev.dataTransfer.files[0]); });
-  $("#btn-exemplo").addEventListener("click", () => executarAnalise("Calculando indicadores…", () => api("/api/analisar/exemplo"), "exemplo"));
+  $("#btn-exemplo").addEventListener("click", () => executarAnalise("Calculando indicadores…", "/api/analisar/exemplo", {}, "exemplo"));
 
   // Manual
   $("#btn-analisar-manual").addEventListener("click", analisarManual);
@@ -759,6 +1068,18 @@ async function iniciar() {
     if (ev.target.closest('[data-acao="informar-preco"]')) informarPreco();
   });
   $("#btn-imprimir").addEventListener("click", () => window.print());
+
+  // Estrutura de capital e projetos
+  aplicarMascaraPreco($("#c-preco"));
+  $("#form-parametros").addEventListener("submit", aplicarParametros);
+  $("#form-captacao").addEventListener("submit", aplicarCaptacao);
+  $("#form-projeto").addEventListener("submit", avaliarProjeto);
+  $("#j-taxa").addEventListener("input", (ev) => {
+    ev.target.dataset.editado = ev.target.value.trim() && ev.target.value.trim() !== ev.target.dataset.wacc ? "1" : "";
+  });
+  $("#r-curva-wacc").addEventListener("click", (ev) => {
+    if (ev.target.closest('[data-acao="parametros"]')) irParaParametros();
+  });
   $("#btn-download").addEventListener("click", (ev) => { ev.stopPropagation(); $("#menu-download").classList.toggle("oculto"); });
   $("#menu-download").addEventListener("click", (ev) => {
     const b = ev.target.closest("[data-download]");

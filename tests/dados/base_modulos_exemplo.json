@@ -1,0 +1,210 @@
+{
+ "1. LIQUIDEZ E GESTÃO DE CAPITAL DE GIRO": [
+  {
+   "nome": "Liquidez Corrente",
+   "valor": 1.55,
+   "valor_formatado": "1,55x",
+   "unidade": "x",
+   "formula": "Ativo Circulante / Passivo Circulante"
+  },
+  {
+   "nome": "Liquidez Seca",
+   "valor": 1.05,
+   "valor_formatado": "1,05x",
+   "unidade": "x",
+   "formula": "(Ativo Circulante - Estoque) / Passivo Circulante"
+  },
+  {
+   "nome": "Prazo Médio de Recebimento",
+   "valor": 51.1,
+   "valor_formatado": "51,1 dias",
+   "unidade": "dias",
+   "formula": "Contas a Receber / (Vendas / 365)"
+  },
+  {
+   "nome": "Giro do Estoque",
+   "valor": 6.0,
+   "valor_formatado": "6,00x",
+   "unidade": "x",
+   "formula": "CMV / Estoque"
+  }
+ ],
+ "2. LUCRATIVIDADE E RENTABILIDADE": [
+  {
+   "nome": "Margem Bruta",
+   "valor": 0.4,
+   "valor_formatado": "40,00%",
+   "unidade": "%",
+   "formula": "Lucro Bruto / Vendas"
+  },
+  {
+   "nome": "Margem Operacional",
+   "valor": 0.175,
+   "valor_formatado": "17,50%",
+   "unidade": "%",
+   "formula": "EBIT / Vendas"
+  },
+  {
+   "nome": "Margem Líquida",
+   "valor": 0.0924,
+   "valor_formatado": "9,24%",
+   "unidade": "%",
+   "formula": "Lucro Líquido / Vendas"
+  },
+  {
+   "nome": "EBITDA",
+   "valor": 440000,
+   "valor_formatado": "R$ 440.000 mil (R$ 440,00 mi)",
+   "unidade": "R$ mil",
+   "formula": "EBIT + Depreciação e Amortização"
+  }
+ ],
+ "3. EFICIÊNCIA E DECOMPOSIÇÃO DUPONT": [
+  {
+   "nome": "Giro do Ativo Total",
+   "valor": 1.3333333333333333,
+   "valor_formatado": "1,33x",
+   "unidade": "x",
+   "formula": "Vendas / Ativo Total"
+  },
+  {
+   "nome": "Giro dos Ativos Fixos",
+   "valor": 2.857142857142857,
+   "valor_formatado": "2,86x",
+   "unidade": "x",
+   "formula": "Vendas / Ativos Fixos (Imobilizado)"
+  },
+  {
+   "nome": "ROA",
+   "valor": 0.1232,
+   "valor_formatado": "12,32%",
+   "unidade": "%",
+   "formula": "Lucro Líquido / Ativo Total"
+  },
+  {
+   "nome": "ROE",
+   "valor": 0.308,
+   "valor_formatado": "30,80%",
+   "unidade": "%",
+   "formula": "Lucro Líquido / Patrimônio Líquido"
+  },
+  {
+   "nome": "DuPont - Margem Líquida",
+   "valor": 0.0924,
+   "valor_formatado": "9,24%",
+   "unidade": "%",
+   "formula": "Lucro Líquido / Vendas"
+  },
+  {
+   "nome": "DuPont - Giro do Ativo Total",
+   "valor": 1.3333333333333333,
+   "valor_formatado": "1,33x",
+   "unidade": "x",
+   "formula": "Vendas / Ativo Total"
+  },
+  {
+   "nome": "DuPont - Multiplicador de Capital",
+   "valor": 2.5,
+   "valor_formatado": "2,50x",
+   "unidade": "x",
+   "formula": "Ativo Total / Patrimônio Líquido"
+  },
+  {
+   "nome": "DuPont - ROE (produto dos 3 fatores)",
+   "valor": 0.308,
+   "valor_formatado": "30,80%",
+   "unidade": "%",
+   "formula": "Margem Líquida x Giro do Ativo x (Ativo / PL)"
+  }
+ ],
+ "4. ESTRUTURA DE CAPITAL E ALAVANCAGEM": [
+  {
+   "nome": "Capital de Terceiros / Capital Próprio",
+   "valor": 0.8666666666666667,
+   "valor_formatado": "0,87x",
+   "unidade": "x",
+   "formula": "Dívida Total / Patrimônio Líquido"
+  },
+  {
+   "nome": "Cobertura de Juros (TIE)",
+   "valor": 5.0,
+   "valor_formatado": "5,00x",
+   "unidade": "x",
+   "formula": "EBIT / Despesas Financeiras"
+  }
+ ],
+ "5. MÚLTIPLOS E AVALIAÇÃO DE MERCADO": [
+  {
+   "nome": "Lucro por Ação (LPA)",
+   "valor": 1.848,
+   "valor_formatado": "R$ 1,85",
+   "unidade": "R$/ação",
+   "formula": "Lucro Líquido / Nº de Ações"
+  },
+  {
+   "nome": "Valor Contábil por Ação (VPA)",
+   "valor": 6.0,
+   "valor_formatado": "R$ 6,00",
+   "unidade": "R$/ação",
+   "formula": "Patrimônio Líquido / Nº de Ações"
+  },
+  {
+   "nome": "Preço/Lucro (P/L)",
+   "valor": 9.74025974025974,
+   "valor_formatado": "9,74x",
+   "unidade": "x",
+   "formula": "Preço da Ação / LPA"
+  },
+  {
+   "nome": "Market-to-Book",
+   "valor": 3.0,
+   "valor_formatado": "3,00x",
+   "unidade": "x",
+   "formula": "Valor de Mercado do PL / Valor Contábil do PL"
+  },
+  {
+   "nome": "Valor de Mercado do PL",
+   "valor": 1800000.0,
+   "valor_formatado": "R$ 1.800.000 mil (R$ 1,80 bi)",
+   "unidade": "R$ mil",
+   "formula": "Preço da Ação x Nº de Ações"
+  },
+  {
+   "nome": "Enterprise Value (EV)",
+   "valor": 2200000.0,
+   "valor_formatado": "R$ 2.200.000 mil (R$ 2,20 bi)",
+   "unidade": "R$ mil",
+   "formula": "Valor de Mercado do PL + Dívida Total - Caixa"
+  }
+ ],
+ "6. FLUXOS DE CAIXA (COMPLEMENTAR)": [
+  {
+   "nome": "Fluxo de Caixa Operacional",
+   "valor": 310000,
+   "valor_formatado": "R$ 310.000 mil (R$ 310,00 mi)",
+   "unidade": "R$ mil",
+   "formula": "DFC - atividades operacionais"
+  },
+  {
+   "nome": "Fluxo de Caixa de Investimento",
+   "valor": -180000,
+   "valor_formatado": "R$ -180.000 mil (R$ -180,00 mi)",
+   "unidade": "R$ mil",
+   "formula": "DFC - atividades de investimento"
+  },
+  {
+   "nome": "Fluxo de Caixa de Financiamento",
+   "valor": -60000,
+   "valor_formatado": "R$ -60.000 mil (R$ -60,00 mi)",
+   "unidade": "R$ mil",
+   "formula": "DFC - atividades de financiamento"
+  },
+  {
+   "nome": "Variação Líquida de Caixa",
+   "valor": 70000,
+   "valor_formatado": "R$ 70.000 mil (R$ 70,00 mi)",
+   "unidade": "R$ mil",
+   "formula": "FCO + FCI + FCF"
+  }
+ ]
+}

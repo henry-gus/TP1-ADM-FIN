@@ -27,6 +27,8 @@ Uso rápido (linha de comando), gerando um JSON que o script de análise consegu
 Convenções:
   - Valores convertidos automaticamente para R$ mil (a CVM informa a escala em ESCALA_MOEDA).
   - Usa o ÚLTIMO exercício do arquivo e a VERSÃO mais recente de cada demonstração (reapresentações).
+    O PENÚLTIMO (comparativo reapresentado no mesmo documento) alimenta o bloco `exercicio_anterior`,
+    usado na dívida média do Kd e nos graus de alavancagem.
   - Despesas/custos da DRE vêm negativos na CVM e são convertidos para valores positivos.
   - O número de ações vem da DFP (composição do capital: ações integralizadas menos as em tesouraria).
     A CVM informa essa quantidade em MILHARES de ações; internamente convertemos para unidades.
@@ -56,6 +58,7 @@ from analise_demonstracoes_financeiras import (
     DadosMercado,
     DFC,
     DRE,
+    ExercicioAnterior,
 )
 
 # Endereço oficial dos arquivos anuais (DFP) no Portal de Dados Abertos da CVM
@@ -89,7 +92,8 @@ def so_digitos(texto: str) -> str:
 
 def ler_numero_br(texto: str) -> float:
     """
-    Converte texto digitado em número. Aceita '18,50', '18.50', '4.197.317.998', 'R$ 1.234,56'.
+    Converte texto digitado em número. Aceita '18,50', '18.50', '4.197.317.998', 'R$ 1.234,56', '300.000'.
+    Sem vírgula, pontos separando grupos de 3 dígitos são de milhar ('300.000' = 300 mil; '0.055' = 0,055).
     Levanta ValueError se não for um número.
     """
     t = (texto or "").replace("R$", "").replace(" ", "").strip()
@@ -97,8 +101,8 @@ def ler_numero_br(texto: str) -> float:
         raise ValueError("valor vazio")
     if "," in t:                       # formato brasileiro: ponto = milhar, vírgula = decimal
         t = t.replace(".", "").replace(",", ".")
-    elif t.count(".") > 1:             # vários pontos: só podem ser separadores de milhar
-        t = t.replace(".", "")
+    elif t.count(".") > 1 or re.fullmatch(r"[-+]?[1-9]\d{0,2}(\.\d{3})+", t):
+        t = t.replace(".", "")         # separadores de milhar
     return float(t)
 
 
@@ -261,17 +265,22 @@ class Conta:
 _ESCALAS_PARA_MIL = {"unidade": 0.001, "mil": 1.0, "milhao": 1000.0, "milhoes": 1000.0}
 
 
-def _ler_contas(zf: zipfile.ZipFile, arquivo: str, cnpj: str) -> Tuple[Dict[str, Conta], str]:
+Contas = Dict[str, Conta]
+
+
+def _ler_contas(zf: zipfile.ZipFile, arquivo: str, cnpj: str) -> Tuple[Contas, Contas, str]:
     """
-    Lê as contas do ÚLTIMO exercício de uma empresa, usando a versão mais recente do documento.
-    Devolve ({codigo_da_conta: Conta}, data_de_referencia).
+    Lê, numa única passagem, as contas do ÚLTIMO e do PENÚLTIMO exercício de uma empresa, usando em
+    cada um a versão mais recente do documento.
+    Devolve ({codigo: Conta} do atual, {codigo: Conta} do anterior, data_de_referencia).
     """
-    candidatas = []  # (versao, codigo, descricao, valor_em_mil, data_ref)
+    grupos: Dict[str, list] = {"ult": [], "pen": []}  # (versao, codigo, descricao, valor_em_mil, data_ref)
     for linha in _linhas_csv(zf, arquivo):
         if (linha.get("CNPJ_CIA") or "").strip() != cnpj:
             continue
-        if not normalizar(linha.get("ORDEM_EXERC", "")).startswith("ult"):
-            continue  # ignora o exercício anterior (PENÚLTIMO)
+        candidatas = grupos.get(normalizar(linha.get("ORDEM_EXERC", ""))[:3])
+        if candidatas is None:
+            continue
         try:
             valor = float((linha.get("VL_CONTA") or "").replace(",", "."))
         except ValueError:
@@ -284,6 +293,12 @@ def _ler_contas(zf: zipfile.ZipFile, arquivo: str, cnpj: str) -> Tuple[Dict[str,
         candidatas.append((versao, (linha.get("CD_CONTA") or "").strip(),
                            (linha.get("DS_CONTA") or "").strip(), valor * fator,
                            (linha.get("DT_REFER") or "").strip()))
+    atual, data_ref = _versao_mais_recente(grupos["ult"])
+    anterior, _ = _versao_mais_recente(grupos["pen"])
+    return atual, anterior, data_ref
+
+
+def _versao_mais_recente(candidatas: list) -> Tuple[Contas, str]:
     if not candidatas:
         return {}, ""
     versao_maxima = max(c[0] for c in candidatas)
@@ -362,18 +377,18 @@ def carregar_dados(
     try:
         with zipfile.ZipFile(caminho) as zf:
             escopo = "con" if consolidado else "ind"
-            bpa, data_ref = _ler_contas_escopo(zf, "bpa", escopo, empresa.cnpj)
+            bpa, bpa_ant, data_ref = _ler_contas_escopo(zf, "bpa", escopo, empresa.cnpj)
             if not bpa and escopo == "con":  # empresa sem consolidado: usa o individual
                 avisos.append("A empresa não publicou demonstrações consolidadas neste ano; foram usadas as individuais.")
                 escopo = "ind"
-                bpa, data_ref = _ler_contas_escopo(zf, "bpa", escopo, empresa.cnpj)
+                bpa, bpa_ant, data_ref = _ler_contas_escopo(zf, "bpa", escopo, empresa.cnpj)
             if not bpa:
                 raise ErroCVM(f"Não há dados de {empresa.nome} para o exercício de {ano} neste arquivo.")
-            bpp, _ = _ler_contas_escopo(zf, "bpp", escopo, empresa.cnpj)
-            dre, _ = _ler_contas_escopo(zf, "dre", escopo, empresa.cnpj)
-            dfc, _ = _ler_contas_escopo(zf, "dfc_mi", escopo, empresa.cnpj)
+            bpp, bpp_ant, _ = _ler_contas_escopo(zf, "bpp", escopo, empresa.cnpj)
+            dre, dre_ant, _ = _ler_contas_escopo(zf, "dre", escopo, empresa.cnpj)
+            dfc, _, _ = _ler_contas_escopo(zf, "dfc_mi", escopo, empresa.cnpj)
             if not dfc:  # algumas empresas usam o método direto (sem linhas de depreciação)
-                dfc, _ = _ler_contas_escopo(zf, "dfc_md", escopo, empresa.cnpj)
+                dfc, _, _ = _ler_contas_escopo(zf, "dfc_md", escopo, empresa.cnpj)
             acoes_cvm = _numero_acoes_cvm(zf, empresa.cnpj) if not numero_acoes else None
     except zipfile.BadZipFile as erro:
         raise ErroCVM(f"O arquivo {caminho} está corrompido. Apague-o e baixe novamente.") from erro
@@ -381,6 +396,9 @@ def carregar_dados(
     todas = {**bpa, **bpp, **dre, **dfc}
     balanco, dre_obj, dfc_obj = _montar_demonstracoes(bpa, bpp, dre, dfc, avisos)
     _verificar_qualidade(todas, bpa, bpp, avisos)
+    anterior = _montar_exercicio_anterior(bpa_ant, bpp_ant, dre_ant)
+    if anterior is None:
+        avisos.append("Exercício anterior não encontrado no arquivo; graus de alavancagem indisponíveis.")
 
     if not numero_acoes and acoes_cvm:
         numero_acoes, total, tesouraria = acoes_cvm
@@ -405,16 +423,16 @@ def carregar_dados(
 
     periodo = f"Exercício encerrado em {_formatar_data(data_ref)}" if data_ref else f"Exercício de {ano}"
     dados = DadosFinanceiros(empresa=empresa.nome, periodo=periodo, balanco=balanco, dre=dre_obj,
-                             dfc=dfc_obj, mercado=mercado)
+                             dfc=dfc_obj, mercado=mercado, exercicio_anterior=anterior)
     fonte = f"CVM - DFP {ano} ({'consolidado' if escopo == 'con' else 'individual'}), valores em R$ mil"
     return ResultadoCarga(dados=dados, empresa=empresa, fonte=fonte, avisos=avisos)
 
 
 def _ler_contas_escopo(zf: zipfile.ZipFile, demonstracao: str, escopo: str,
-                       cnpj: str) -> Tuple[Dict[str, Conta], str]:
-    """Localiza o CSV da demonstração/escopo no zip e extrai as contas da empresa."""
+                       cnpj: str) -> Tuple[Contas, Contas, str]:
+    """Localiza o CSV da demonstração/escopo no zip e extrai as contas da empresa (atual e anterior)."""
     arquivo = _achar_arquivo(zf, demonstracao, escopo)
-    return _ler_contas(zf, arquivo, cnpj) if arquivo else ({}, "")
+    return _ler_contas(zf, arquivo, cnpj) if arquivo else ({}, {}, "")
 
 
 def _inteiro_br(valor: float) -> str:
@@ -456,14 +474,32 @@ def _formatar_data(data_iso: str) -> str:
     return f"{partes[2]}/{partes[1]}/{partes[0]}" if len(partes) == 3 else data_iso
 
 
-def _montar_demonstracoes(bpa, bpp, dre, dfc, avisos: List[str]) -> Tuple[BalancoPatrimonial, DRE, DFC]:
-    """Mapeia os códigos de conta padronizados da CVM para os campos do script de análise."""
-    # Caixa = Caixa e equivalentes (1.01.01) + Aplicações financeiras (1.01.02)
+def _caixa(bpa: Contas) -> Optional[float]:
+    """Caixa = Caixa e equivalentes (1.01.01) + Aplicações financeiras (1.01.02)."""
     caixa = None
     for codigo in ("1.01.01", "1.01.02"):
         v = _valor(bpa, codigo)
         if v is not None:
             caixa = (caixa or 0.0) + v
+    return caixa
+
+
+def _montar_exercicio_anterior(bpa: Contas, bpp: Contas, dre: Contas) -> Optional[ExercicioAnterior]:
+    """Contas do exercício PENÚLTIMO, com as mesmas convenções do exercício atual (None se não houver)."""
+    if not (bpa or bpp or dre):
+        return None
+    cp, lp = _valor(bpp, "2.01.04"), _valor(bpp, "2.02.01")
+    if bpp:  # conta de empréstimos ausente = sem empréstimos, como no exercício atual
+        cp, lp = (cp if cp is not None else 0.0), (lp if lp is not None else 0.0)
+    return ExercicioAnterior(
+        vendas=_valor(dre, "3.01"), ebit=_valor(dre, "3.05"), lucro_liquido=_valor(dre, "3.11"),
+        emprestimos_cp=cp, emprestimos_lp=lp, caixa=_caixa(bpa), patrimonio_liquido=_valor(bpp, "2.03"),
+    )
+
+
+def _montar_demonstracoes(bpa, bpp, dre, dfc, avisos: List[str]) -> Tuple[BalancoPatrimonial, DRE, DFC]:
+    """Mapeia os códigos de conta padronizados da CVM para os campos do script de análise."""
+    caixa = _caixa(bpa)
 
     estoques = _valor(bpa, "1.01.04")
     if estoques is None:
@@ -500,6 +536,7 @@ def _montar_demonstracoes(bpa, bpp, dre, dfc, avisos: List[str]) -> Tuple[Balanc
         despesas_financeiras=_valor(dre, "3.06.02", -1),
         imposto_renda=_valor(dre, "3.08", -1),
         lucro_liquido=_valor(dre, "3.11"),
+        lucro_antes_impostos=_valor(dre, "3.07"),
         depreciacao_amortizacao=_depreciacao_amortizacao(dfc),
     )
     if dre_obj.depreciacao_amortizacao is None:

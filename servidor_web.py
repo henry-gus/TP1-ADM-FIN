@@ -20,6 +20,12 @@ Rotas da API:
     POST /api/analisar/cvm   {cnpj, nome, cd_cvm, ano, consolidado, preco, acoes}
     POST /api/analisar/dados {dados}       -> analisa dados no formato de dados_entrada.json
     GET  /api/analisar/exemplo             -> dados fictícios de exemplo
+    POST /api/analisar/exemplo {}          -> idem, aceitando os blocos opcionais abaixo
+
+As três rotas de análise aceitam os blocos opcionais (taxas em %, números no formato brasileiro):
+    "parametros": {"rf", "beta", "premio", "kd"}              -> custo de capital (WACC)
+    "captacao":   {"valor", "taxa", "preco_emissao", "ebit_projetado"} -> análise EBIT-LPA
+    "projeto":    {"investimento", "fluxos": [...], "taxa"}  -> avaliação de projeto (taxa vazia = WACC)
 """
 
 from __future__ import annotations
@@ -35,11 +41,13 @@ import zipfile
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Callable, Dict, List, Optional
 from urllib.parse import parse_qs, urlparse
 
 import app
+import avaliacao_investimentos as ai
 import cvm_loader as cvm
+import estrutura_capital as ec
 from analise_demonstracoes_financeiras import DadosFinanceiros
 
 PASTA_WEB = Path(__file__).resolve().parent / "web"
@@ -179,6 +187,122 @@ def _numero_opcional(valor: Any, nome: str) -> Optional[float]:
     return numero
 
 
+def _numero(valor: Any) -> Optional[float]:
+    """Número JSON ou texto no formato brasileiro; None se vazio; ValueError se inválido."""
+    if valor is None or (isinstance(valor, str) and not valor.strip()):
+        return None
+    if isinstance(valor, bool):
+        raise ValueError
+    if isinstance(valor, (int, float)):
+        numero = float(valor)
+    elif isinstance(valor, str):
+        numero = cvm.ler_numero_br(valor)
+    else:
+        raise ValueError
+    if not math.isfinite(numero):
+        raise ValueError
+    return numero
+
+
+def _taxa_opcional(valor: Any, nome: str) -> Optional[float]:
+    """Taxa em percentual ("13,75" ou 13.75) -> fração (0,1375). Vazio = None."""
+    try:
+        numero = _numero(valor)
+    except ValueError:
+        raise ErroRequisicao(f"{nome} inválida: {valor!r}. Exemplo: 13,75") from None
+    return None if numero is None else numero / 100
+
+
+def _positivo(valor: Any, nome: str) -> float:
+    """Número obrigatório e maior que zero."""
+    try:
+        numero = _numero(valor)
+    except ValueError:
+        raise ErroRequisicao(f"{nome} inválido: {valor!r}.") from None
+    if numero is None:
+        raise ErroRequisicao(f"Campo obrigatório: {nome}.")
+    if numero <= 0:
+        raise ErroRequisicao(f"{nome} deve ser maior que zero.")
+    return numero
+
+
+def _livre(valor: Any, nome: str, exemplo: str) -> Optional[float]:
+    """Número opcional, de qualquer sinal."""
+    try:
+        return _numero(valor)
+    except ValueError:
+        raise ErroRequisicao(f"{nome} inválido: {valor!r}. Exemplo: {exemplo}") from None
+
+
+def _bloco(corpo: Dict[str, Any], chave: str) -> Optional[Dict[str, Any]]:
+    bloco = corpo.get(chave)
+    if bloco is None:
+        return None
+    if not isinstance(bloco, dict):
+        raise ErroRequisicao(f"O bloco '{chave}' deve ser um objeto.")
+    return bloco
+
+
+def _parametros(corpo: Dict[str, Any]) -> Optional[ec.ParametrosMercado]:
+    """Bloco opcional "parametros": {rf, beta, premio, kd} (taxas em %)."""
+    bloco = _bloco(corpo, "parametros")
+    if bloco is None:
+        return None
+    return ec.ParametrosMercado(
+        taxa_livre_risco=_taxa_opcional(bloco.get("rf"), "Taxa livre de risco"),
+        beta=_livre(bloco.get("beta"), "Beta", "1,2"),
+        premio_risco_mercado=_taxa_opcional(bloco.get("premio"), "Prêmio de risco de mercado"),
+        custo_divida=_taxa_opcional(bloco.get("kd"), "Custo da dívida"),
+    )
+
+
+def _captacao(corpo: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """Bloco opcional "captacao": {valor, taxa (%), preco_emissao, ebit_projetado}."""
+    bloco = _bloco(corpo, "captacao")
+    if bloco is None:
+        return None
+    taxa = _taxa_opcional(bloco.get("taxa"), "Taxa da nova dívida")
+    if taxa is None or taxa <= 0:
+        raise ErroRequisicao("Taxa da nova dívida deve ser maior que zero.")
+    return {"valor": _positivo(bloco.get("valor"), "Valor a captar"), "taxa_divida": taxa,
+            "preco_emissao": _positivo(bloco.get("preco_emissao"), "Preço de emissão"),
+            "ebit_projetado": _livre(bloco.get("ebit_projetado"), "EBIT projetado", "500.000")}
+
+
+def _projeto(corpo: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """Bloco opcional "projeto": {investimento, fluxos: [...], taxa (%; vazio = WACC)}."""
+    bloco = _bloco(corpo, "projeto")
+    if bloco is None:
+        return None
+    investimento = _positivo(bloco.get("investimento"), "Investimento inicial")
+    brutos = bloco.get("fluxos")
+    if not isinstance(brutos, list) or not 1 <= len(brutos) <= ai.MAX_FLUXOS:
+        raise ErroRequisicao(f"Informe de 1 a {ai.MAX_FLUXOS} fluxos anuais.")
+    fluxos: List[float] = []
+    for ano, bruto in enumerate(brutos, 1):
+        try:
+            numero = _numero(bruto)
+        except ValueError:
+            numero = None
+        if numero is None:
+            raise ErroRequisicao(f"Fluxo do ano {ano} inválido: {bruto!r}.")
+        fluxos.append(numero)
+    return {"investimento_inicial": investimento, "fluxos": fluxos,
+            "taxa": _taxa_opcional(bloco.get("taxa"), "Taxa de desconto")}
+
+
+def _opcoes_analise(corpo: Dict[str, Any]) -> Dict[str, Any]:
+    return {"parametros": _parametros(corpo), "captacao": _captacao(corpo), "projeto": _projeto(corpo)}
+
+
+def _analisar(funcao: Callable[..., app.ResultadoAnalise], *args: Any, **kwargs: Any) -> Dict[str, Any]:
+    """Executa a análise convertendo erros de validação do cálculo em erro de requisição (HTTP 400)."""
+    try:
+        return _resultado_para_json(funcao(*args, **kwargs))
+    except ValueError as erro:
+        raise ErroRequisicao(str(erro)) from erro
+
+
 def _booleano(valor: Any, padrao: bool = True) -> bool:
     if valor is None:
         return padrao
@@ -219,16 +343,16 @@ def rota_analisar_cvm(_q, corpo) -> Dict[str, Any]:
                              cd_cvm=str(corpo.get("cd_cvm") or ""))
     preco = _numero_opcional(corpo.get("preco"), "Preço da ação")
     acoes = _numero_opcional(corpo.get("acoes"), "Número de ações")
-    res = app.analisar_cvm(empresa, ano, consolidado=_booleano(corpo.get("consolidado")),
-                           preco_acao=preco, numero_acoes=acoes, caminho_zip=DOWNLOADS.caminho(ano))
-    return _resultado_para_json(res)
+    opcoes = _opcoes_analise(corpo)
+    return _analisar(app.analisar_cvm, empresa, ano, consolidado=_booleano(corpo.get("consolidado")),
+                     preco_acao=preco, numero_acoes=acoes, caminho_zip=DOWNLOADS.caminho(ano), **opcoes)
 
 
 def rota_analisar_dados(_q, corpo) -> Dict[str, Any]:
     dados = corpo.get("dados")
     if not isinstance(dados, dict):
         raise ErroRequisicao("Envie os dados no formato de dados_entrada.json.")
-    for secao in ("balanco", "dre", "dfc", "mercado"):
+    for secao in ("balanco", "dre", "dfc", "mercado", "exercicio_anterior"):
         contas = dados.get(secao)
         if contas is None:
             continue
@@ -241,11 +365,11 @@ def rota_analisar_dados(_q, corpo) -> Dict[str, Any]:
     dados = {**dados, "empresa": str(dados.get("empresa") or "Empresa").strip() or "Empresa",
              "periodo": str(dados.get("periodo") or "").strip()}
     fonte = str(corpo.get("fonte") or "dados informados pelo usuário")
-    return _resultado_para_json(app.analisar_dados(DadosFinanceiros.from_dict(dados), fonte=fonte))
+    return _analisar(app.analisar_dados, DadosFinanceiros.from_dict(dados), fonte=fonte, **_opcoes_analise(corpo))
 
 
-def rota_exemplo(_q, _c) -> Dict[str, Any]:
-    return _resultado_para_json(app.analisar_exemplo())
+def rota_exemplo(_q, corpo) -> Dict[str, Any]:
+    return _analisar(app.analisar_exemplo, **_opcoes_analise(corpo or {}))
 
 
 ROTAS_GET = {
@@ -258,6 +382,7 @@ ROTAS_POST = {
     "/api/dfp/preparar": rota_dfp_preparar,
     "/api/analisar/cvm": rota_analisar_cvm,
     "/api/analisar/dados": rota_analisar_dados,
+    "/api/analisar/exemplo": rota_exemplo,
 }
 
 
@@ -283,7 +408,7 @@ class Manipulador(BaseHTTPRequestHandler):
         consulta = {k: v[0] for k, v in parse_qs(urlparse(self.path).query).items()}
         try:
             self._json(HTTPStatus.OK, rota(consulta, corpo))
-        except (ErroRequisicao, cvm.ErroCVM) as erro:
+        except (ErroRequisicao, cvm.ErroCVM, ValueError) as erro:
             self._json(HTTPStatus.BAD_REQUEST, {"erro": str(erro)})
         except Exception as erro:  # noqa: BLE001
             traceback.print_exc()
